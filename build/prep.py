@@ -53,6 +53,7 @@ for e in els:
     t=e['tags'];h=t.get('highway')
     if not h or h in SK:continue
     g=[xy(p) for p in e['geometry']]
+    if t.get('oneway')=='-1':g.reverse() # 與繪製方向相反的單行道
     if not any(-2500<=x<=3500 and -1600<=y<=1700 for x,y in g):continue
     roads.append(dict(t=h,n=t.get('name',''),ln=int(t['lanes']) if t.get('lanes','').isdigit() else 0,ow=1 if t.get('oneway') in('yes','-1') else 0,
         br=1 if 'bridge' in t else 0,ly=int(t.get('layer',0)) if str(t.get('layer','0')).lstrip('-').isdigit() else 0,p=[[r1(x),r1(y)] for x,y in g]))
@@ -94,7 +95,7 @@ for ci in range(5):
     allv=sorted(sum((cls[k][ci] for k in cls),[]))
     ff.append(allv[int(len(allv)*0.85)] if allv else 90)
 # 匝道端點銜接的地面道路（出口駛離段、入口進場段），沿 OSM 道路走 180 m
-TERM_OUT={'A_S':[263,103],'A_S_T':[264,74],'B_S':[-914,86],'B_N':[-1106,-102],'A_N':[70,-82],'FLY1':[313,-261],'FLY2':[289,-252]}
+TERM_OUT={'A_S':[268,138],'A_S_T':[264,74],'B_S':[-914,86],'B_N':[-1106,-102],'A_N':[70,-82],'FLY1':[313,-261],'FLY2':[289,-252]}
 TERM_IN={'A_S_on':[136,64],'B_S_on':[-1090,80],'B_N_on':[-979,-98],'A_N_on':[278,-75],'A_N_on2':[281,267]}
 sw=[e for e in els if e['tags'].get('highway') and e['tags']['highway'] not in SK and 'bridge' not in e['tags']]
 npos={};nway=collections.defaultdict(list)
@@ -132,6 +133,10 @@ def walk(c,fwd,L=180):
         dl=math.dist(npos[m],npos[n]);dirv=((npos[m][0]-npos[n][0])/(dl or 1),(npos[m][1]-npos[n][1])/(dl or 1));tot+=dl;path.append(m)
     pts=[[r1(npos[n][0]),r1(npos[n][1])] for n in path]
     return pts if fwd else pts[::-1]
+# 林口A南出匝道末端（依高公局示意圖與空拍影像修正 OSM 線形）：
+# 右轉槽化車道以較大半徑繞過槽化島，在路口北方約 65 m 匯入文化一路一段北向；直行／左轉為 5 車道進口
+for e in edges:
+    if e['id']=='182679857_0':e['p']=[[381.4,71.4],[364.5,74.5],[342.0,76.5],[320.0,80.0],[303.0,86.5],[289.0,96.0],[279.0,109.0],[272.5,123.0],[268.3,137.8]]
 stubs={}
 for k,c in TERM_OUT.items():
     p=walk(c,True)
@@ -139,6 +144,8 @@ for k,c in TERM_OUT.items():
 for k,c in TERM_IN.items():
     p=walk(c,False)
     if p and len(p)>1:stubs[k]=p
+stubs['A_S_T']=[[264.6,74.5],[247.5,74.7],[222.1,73.2],[170.1,70.1]] # 直行八德路
+stubs['A_S_L']=[[264.6,74.5],[254.0,72.5],[248.5,64.0],[249.5,40.0],[256.3,-45.3]] # 左轉文化一路跨越橋
 for k,p in stubs.items():print(k,len(p),p[0],p[-1],round(sum(math.dist(p[i],p[i+1]) for i in range(len(p)-1))))
 # 綠地（林地 w、公園草地 p、水域 a）
 green=[]
