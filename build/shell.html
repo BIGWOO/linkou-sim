@@ -1,0 +1,235 @@
+<title>林口交流道改善模擬</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：全幅 3D 場景，上方為國道標誌綠的控制列，左側為可捲動的資訊面板（手機改為底部抽屜） */
+:root {
+  --bg: #dfe6e1; --panel: rgba(248, 251, 249, 0.95); --ink: #15231b; --muted: #58685f; --line: #cdd7d0; --soft: #edf2ee;
+  --sign: #00693c; --sign-ink: #ffffff; --sign-2: #0a8a52; --amber: #a86200; --good: #0d7a45; --bad: #c0392b;
+  --c-before: #c7551f; --c-after: #1f6fd1;
+  --f-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --f-num: "Barlow Semi Condensed", "Noto Sans TC", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1411; --panel: rgba(18, 25, 21, 0.94); --ink: #e6efe9; --muted: #9aaba1; --line: #2b3931; --soft: #1a241e;
+  --sign: #0b7a48; --sign-ink: #ffffff; --sign-2: #19a565; --amber: #e0a040; --good: #46c482; --bad: #ef7b6c;
+  --c-before: #f08a52; --c-after: #6aa9ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e1411; --panel: rgba(18, 25, 21, 0.94); --ink: #e6efe9; --muted: #9aaba1; --line: #2b3931; --soft: #1a241e;
+  --sign: #0b7a48; --sign-ink: #ffffff; --sign-2: #19a565; --amber: #e0a040; --good: #46c482; --bad: #ef7b6c;
+  --c-before: #f08a52; --c-after: #6aa9ff; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.55; overflow: hidden; }
+#app { position: relative; height: 100%; overflow: hidden; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--c-after); outline-offset: 2px; }
+
+#bar { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 8px; background: var(--sign); color: var(--sign-ink); box-shadow: 0 2px 10px rgba(0,0,0,.25); z-index: 5; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.shield { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #fff; color: var(--sign); display: grid; place-items: center; font: 600 20px/1 var(--f-num); box-shadow: 0 0 0 2px var(--sign), 0 0 0 4px #fff; margin: 4px; }
+.brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.brand small { display: block; font-size: 11px; opacity: .85; font-weight: 400; letter-spacing: 0; }
+.seg { display: inline-flex; border: 1px solid rgba(255,255,255,.55); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: inherit; padding: 5px 10px; font-size: 13px; }
+.seg button + button { border-left: 1px solid rgba(255,255,255,.4); }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--sign); font-weight: 700; }
+.clock { font: 600 24px/1 var(--f-num); font-variant-numeric: tabular-nums; letter-spacing: .03em; }
+.clockbox { display: flex; align-items: baseline; gap: 8px; }
+.clockbox small { font-size: 11px; opacity: .85; }
+.btn { border: 1px solid rgba(255,255,255,.55); background: transparent; color: inherit; border-radius: 6px; padding: 5px 12px; font-size: 13px; }
+.btn[aria-pressed="true"] { background: #fff; color: var(--sign); }
+.spacer { flex: 1 1 0; }
+
+#panel { position: absolute; left: 12px; top: 74px; bottom: 12px; width: min(380px, calc(100% - 24px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; z-index: 4; backdrop-filter: blur(6px); box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.tabs { display: flex; border-bottom: 1px solid var(--line); flex: none; }
+.tabs button { flex: 1; border: 0; background: transparent; padding: 10px 4px; font-size: 13px; color: var(--muted); border-bottom: 3px solid transparent; }
+.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--sign-2); }
+#collapse { flex: none; width: 40px; border-left: 1px solid var(--line) !important; }
+.tab { overflow-y: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+#panel.collapsed { bottom: auto; }
+#panel.collapsed .tab { display: none; }
+h2 { font-size: 13px; margin: 0; font-weight: 700; letter-spacing: .06em; color: var(--muted); }
+p { margin: 0; }
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.facts div { background: var(--panel); padding: 8px 10px; min-width: 0; }
+.facts dt, .lbl { font-size: 11px; color: var(--muted); }
+.facts dd { margin: 0; font: 600 18px/1.2 var(--f-num); font-variant-numeric: tabular-nums; }
+.facts dd small { font: 400 11px var(--f-body); color: var(--muted); margin-left: 3px; }
+.works { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.works li { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: start; padding: 10px; background: var(--soft); border-radius: 8px; }
+.works i { width: 12px; height: 12px; border-radius: 3px; margin-top: 5px; }
+.works b { display: block; font-size: 13.5px; }
+.works span { font-size: 12.5px; color: var(--muted); }
+.go { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 4px 9px; font-size: 12px; white-space: nowrap; }
+.go:hover { border-color: var(--sign-2); }
+.note { font-size: 12.5px; color: var(--muted); }
+.note b { color: var(--ink); }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.pseg button { border: 0; background: transparent; padding: 5px 10px; font-size: 12.5px; }
+.pseg button + button { border-left: 1px solid var(--line); }
+.pseg button[aria-pressed="true"] { background: var(--sign); color: var(--sign-ink); }
+input[type=range] { width: 100%; accent-color: var(--sign-2); }
+.par { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; font-size: 12.5px; }
+.par input { grid-column: 1 / -1; }
+.par output { font: 600 13px var(--f-num); font-variant-numeric: tabular-nums; }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.kpis div { background: var(--panel); padding: 7px 9px; min-width: 0; }
+.kpis b { display: block; font: 600 19px/1.15 var(--f-num); font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: top; }
+th:first-child, td:first-child { text-align: left; font-weight: 500; }
+thead th { font-size: 11px; color: var(--muted); font-weight: 500; }
+td b { font: 600 13.5px var(--f-num); display: block; }
+td small { color: var(--muted); font-size: 10.5px; }
+.na { color: var(--muted); } .good { color: var(--good); font-weight: 700; } .bad { color: var(--bad); font-weight: 700; }
+.chartbox { display: flex; flex-direction: column; gap: 2px; }
+.chartbox canvas { width: 100%; height: 96px; display: block; }
+.key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted); }
+.key i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+.key i.ln { width: 14px; height: 2px; border-radius: 0; background: var(--muted); vertical-align: middle; }
+ul.src { margin: 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; }
+ul.src a { color: var(--c-after); }
+textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+#legend { position: absolute; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; z-index: 3; }
+#legend .grad { width: 170px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, hsl(0 90% 50%), hsl(45 90% 50%), hsl(90 90% 45%), hsl(130 90% 40%)); margin: 4px 0 2px; }
+#legend .ax { display: flex; justify-content: space-between; color: var(--muted); }
+#help { position: absolute; right: 12px; top: 74px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11.5px; color: var(--muted); z-index: 3; }
+@media (max-width: 760px) {
+  .brand small, #help { display: none; }
+  .brand h1 { font-size: 14px; }
+  .clock { font-size: 20px; }
+  #panel { left: 8px; right: 8px; width: auto; top: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); height: 46%; }
+  #panel.collapsed { height: auto; }
+  #legend { bottom: auto; top: 118px; right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div id="app" data-scen="before">
+  <canvas id="scene" aria-label="國道一號林口交流道 3D 模型"></canvas>
+
+  <header id="bar">
+    <div class="brand"><div class="shield" aria-hidden="true">1</div><h1>林口交流道改善模擬<small>國道 1 號 37.6K–46.7K ・ 1:1 比例 ・ 實測車流</small></h1></div>
+    <div class="seg" id="scen" role="group" aria-label="情境"><button data-v="before" aria-pressed="true">現況</button><button data-v="after" aria-pressed="false">改善後（預定 116 年）</button></div>
+    <span class="spacer"></span>
+    <div class="clockbox"><span class="clock" id="clock">07:00:00</span><small><span id="date"></span>（二）需求 ・ <span id="eff"></span></small></div>
+    <button class="btn" id="play" aria-pressed="false">暫停</button>
+    <div class="seg" id="speed" role="group" aria-label="模擬倍速"><button data-v="1" aria-pressed="false">1×</button><button data-v="10" aria-pressed="true">10×</button><button data-v="30" aria-pressed="false">30×</button><button data-v="60" aria-pressed="false">60×</button></div>
+  </header>
+
+  <div id="help">拖曳旋轉 ・ 滾輪縮放 ・ 右鍵平移</div>
+
+  <aside id="panel">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="plan" aria-selected="true">計畫</button>
+      <button role="tab" data-tab="sim" aria-selected="false">模擬</button>
+      <button role="tab" data-tab="meas" aria-selected="false">量測</button>
+      <button role="tab" data-tab="src" aria-selected="false">依據</button>
+      <button id="collapse" aria-label="收合面板">▾</button>
+    </div>
+
+    <section class="tab" id="tab-plan">
+      <p>林口 A（約 41K，文化一路）與林口 B（約 43K，文化北路／忠義路）是兩座以集散道串聯的鑽石型交流道。主線長爬坡、匝道口號誌與集散道上的交織，讓出口車流回堵到國道主線。高公局統計這裡每日進出逾 17 萬車次，是全國最繁忙的交流道。</p>
+      <dl class="facts">
+        <div><dt>計畫總經費</dt><dd>37.2<small>億元</small></dd></div>
+        <div><dt>工程決標（I104S 標）</dt><dd>29.59<small>億元</small></dd></div>
+        <div><dt>開工</dt><dd>112.05.28</dd></div>
+        <div><dt>預定完工</dt><dd>116.10</dd></div>
+        <div><dt>實際進度（115.09.30）</dt><dd>69.72<small>%</small></dd></div>
+        <div><dt>工期</dt><dd>1,440<small>日曆天</small></dd></div>
+      </dl>
+      <h2>工程內容</h2>
+      <ul class="works">
+        <li><i style="background:#ff8e7a"></i><div><b>林口 A 南出高架匝道</b><span>自原南出匝道外側岔出，跨越文化一路與國 1 主線，分兩股各 1 車道接文化一路內側與復興街。原匝道外側另增 1 條右轉車道。南下主線 39.4K 至出口同步拓寬。</span></div><button class="go" data-view="so" data-scen="after">看這裡</button></li>
+        <li><i style="background:#7fb2ff"></i><div><b>林口 A 北入高架匝道</b><span>起點在八德路與文化一路的三角地帶，跨越主線後與既有北入車道匯集再併入主線。</span></div><button class="go" data-view="ni" data-scen="after">看這裡</button></li>
+        <li><i style="background:#7fe0d2"></i><div><b>南出南入交織改善</b><span>往林口 B 的出口車流改走箱涵，與林口 A 南入車流立體分離，不再於集散道上交叉變換車道。</span></div><button class="go" data-view="ws" data-scen="after">看這裡</button></li>
+        <li><i style="background:#f2d16b"></i><div><b>北出北入交織改善</b><span>往林口 A 的北出車流走箱涵，與林口 B 北入車流分離，集散道同步拓寬。計畫另增設北出往文化三路匝道（本模型尚未納入，見「依據」）。</span></div><button class="go" data-view="wn" data-scen="after">看這裡</button></li>
+      </ul>
+      <h2>官方預期效益</h2>
+      <p class="note">南出左轉高架匝道可分流原南出匝道約 <b>31%</b> 車流，北入高架匝道分流約 <b>30%</b>。交通部說明南出往長庚方向行車時間可由 <b>19 分鐘降至 5 分鐘</b>，北入由 <b>14 分鐘降至 2 分鐘</b>。這些數字包含地面道路的等候，本模型只涵蓋國道與匝道，請以「量測」頁的模擬結果自行比較。</p>
+      <h2>其他視角</h2>
+      <div class="row"><button class="go" data-view="all">全景</button><button class="go" data-view="A">林口 A</button><button class="go" data-view="B">林口 B</button><button class="go" data-view="hill">泰山端爬坡</button><button class="go" data-view="west">桃園端爬坡</button></div>
+    </section>
+
+    <section class="tab" id="tab-sim" hidden>
+      <h2>時段</h2>
+      <div class="row"><button class="go" data-jump="6.5">06:30 晨峰</button><button class="go" data-jump="7.5">07:30</button><button class="go" data-jump="12">12:00</button><button class="go" data-jump="15">15:00</button><button class="go" data-jump="17">17:00 昏峰</button><button class="go" data-jump="22">22:00</button></div>
+      <label class="par" for="tslider"><span>拖曳選擇起始時間（放開後路網清空重新進車）</span><output></output><input type="range" id="tslider" min="0" max="287" step="1" value="84"></label>
+      <h2>顯示</h2>
+      <div class="row"><span class="lbl">車輛著色</span><div class="pseg" id="colmode"><button data-v="speed" aria-pressed="true">依速率</button><button data-v="type" aria-pressed="false">依車種</button></div></div>
+      <label class="chk" for="hl"><input type="checkbox" id="hl" checked>以顏色標示新增工程</label>
+      <label class="chk" for="lb"><input type="checkbox" id="lb" checked>顯示地名與門架標籤</label>
+      <h2>參數（調整後重新開始模擬）</h2>
+      <p class="note">需求以門架實測流量為基準。匝道在 A、B 之間的分配與號誌綠燈比沒有公開資料，預設值是讓模擬速率貼近實測所校估出來的，請視需要調整。</p>
+      <div id="pars" style="display:flex;flex-direction:column;gap:10px"></div>
+      <label class="chk" for="bound"><input type="checkbox" id="bound" checked>下游出口採下一區間實測速率（反映模型範圍外的壅塞）</label>
+      <div class="row"><button class="go" id="reset">恢復預設值</button></div>
+    </section>
+
+    <section class="tab" id="tab-meas" hidden>
+      <div class="kpis">
+        <div><span class="lbl">路網內車輛</span><b id="k-veh">0</b></div>
+        <div><span class="lbl">低於 10 km/h</span><b id="k-slow">0</b></div>
+        <div><span class="lbl">起點等候進入</span><b id="k-wait">0</b></div>
+        <div><span class="lbl">南下回堵主線</span><b id="k-spillS">0</b></div>
+        <div><span class="lbl">北上回堵主線</span><b id="k-spillN">0</b></div>
+        <div><span class="lbl">錯過出口</span><b id="k-miss">0</b></div>
+      </div>
+      <h2>各動向平均行駛時間（最近 15 分鐘）</h2>
+      <table><thead><tr><th>動向</th><th>現況</th><th>改善後</th><th>差異</th></tr></thead><tbody id="tb-mov"></tbody></table>
+      <p class="note">兩個情境要各自在相同時段跑過才會並列。行駛時間自車輛產生（含在起點等候）算到駛離模型範圍。</p>
+      <h2>區間平均速率 km/h</h2>
+      <div class="key"><span><i class="ln"></i>門架實測</span><span><i style="background:var(--c-before)"></i>模擬 現況</span><span><i style="background:var(--c-after)"></i>模擬 改善後</span></div>
+      <div class="chartbox"><span class="lbl">南下 37.6K → 41.3K（林口 A 出口上游）</span><canvas id="ch0"></canvas></div>
+      <div class="chartbox"><span class="lbl">南下 41.3K → 46.7K</span><canvas id="ch1"></canvas></div>
+      <div class="chartbox"><span class="lbl">北上 46.7K → 41.3K（林口出口上游）</span><canvas id="ch2"></canvas></div>
+      <div class="chartbox"><span class="lbl">北上 41.3K → 37.6K</span><canvas id="ch3"></canvas></div>
+      <h2>門架流量（前一個 5 分鐘，換算輛/時）</h2>
+      <table><thead><tr><th>門架</th><th>模擬</th><th>實測</th><th>模擬點速率</th></tr></thead><tbody id="tb-det"></tbody></table>
+      <div class="row"><button class="go" id="copy">複製全部量測資料（CSV）</button><span class="note" id="copy-msg"></span></div>
+      <textarea id="csv" hidden readonly aria-label="CSV 量測資料"></textarea>
+    </section>
+
+    <section class="tab" id="tab-src" hidden>
+      <h2>資料來源</h2>
+      <ul class="src">
+        <li><b>線形與匝道配置：</b>OpenStreetMap（2026/10/13 擷取），含標註 2027 年通車的施工中匝道。座標以公尺投影，模型為 1:1。</li>
+        <li><b>建物：</b>OpenStreetMap 建物輪廓 <span id="bld-note"></span> 棟，其中 <span id="bld-known"></span> 棟有樓層或高度資料，其餘依建物類型給定預設高度。</li>
+        <li><b>地形與縱坡：</b>SRTM 30 m 高程，沿國道中心線平滑後作為路面縱斷面。</li>
+        <li><b>車流量與車種：</b>高公局 TDCS M03A，2026/09/08（週二）門架 01F0376、01F0413、01F0467 與五楊 01H0447 的 5 分鐘各車種通過量。</li>
+        <li><b>實測速率與自由流速率：</b>高公局 TDCS M05A 同日門架區間平均旅行速率；各車種期望速率取其第 85 百分位。</li>
+        <li><b>計畫內容：</b><a href="https://www.freeway.gov.tw/Publish.aspx?cnid=93&p=32695" target="_blank" rel="noopener">高公局計畫頁</a>與第 1 次修正建設計畫定稿本、<a href="https://www.motc.gov.tw/ch/app/data/view?module=news&id=14&serno=202212220003" target="_blank" rel="noopener">交通部決標新聞稿</a>。</li>
+      </ul>
+      <h2>模型做法</h2>
+      <ul class="src">
+        <li>每輛車以 IDM 跟車模型行駛，逐車道變換；大型車限行外側兩車道，上坡時重車期望速率隨坡度下降。時間步長 0.25 秒。</li>
+        <li>主線速限 100 km/h，匝道 50–60 km/h。主線車道寬 3.65 m、外側路肩 3.0 m、內側 1.0 m（國道設計標準值）。</li>
+        <li>出口與入口總量 = 上下游門架流量差。全日合計約 18.5 萬輛，與高公局公布的「每日逾 17 萬」相符。</li>
+        <li>出口匝道末端以號誌控制放行，這是回堵的來源。</li>
+      </ul>
+      <h2>使用前請留意的限制</h2>
+      <ul class="src">
+        <li><b>匝道流量是推估值。</b>門架只量得到 A、B 合計的進出量，兩者的分配比例與左右轉比例為假設，可在「模擬」頁調整。</li>
+        <li><b>號誌時制是校估值，</b>不是實際時制計畫。</li>
+        <li><b>實測流量是「已通過」的量。</b>壅塞時真實需求高於此值，地面道路上的等候也不在模型內，所以北入匝道的改善幅度會被低估。</li>
+        <li><b>現況車道數依 OSM。</b>南下出口前拓寬（改善後 +1 車道）與北上入口下游的漸變段長度是我的判讀，沒有設計圖可核對。</li>
+        <li><b>北出往文化三路新匝道未納入</b>（OSM 尚無線形），北上出口的改善效果因此偏保守。</li>
+        <li>箱涵處以「另一股車流抬高跨越」呈現立體分離，實際是出口車流下穿；車流行為相同，局部高程差約 6 m。</li>
+        <li>高架匝道高度由圖層推定（跨主線 7 m、跨文化一路橋 13 m），非設計高程。</li>
+        <li>目前校估結果：南下晨峰速率走勢與實測接近；北上 41.3K→37.6K 模擬偏快，代表該段實際瓶頸模型尚未完全重現。要用於正式分析，建議再取得匝道流量調查與號誌時制後重新校估。</li>
+      </ul>
+    </section>
+  </aside>
+
+  <div id="legend"><span>車速 ÷ 速限</span><div class="grad"></div><div class="ax"><span>0</span><span>50%</span><span>100%</span></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>window.LINKOU=/*__DATA__*/;</script>
+<script>/*__SIM__*/</script>
+<script>/*__VIEW__*/</script>
+<script>/*__APP__*/</script>
