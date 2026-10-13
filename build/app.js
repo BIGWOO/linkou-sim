@@ -51,6 +51,7 @@
     const now = performance.now(); if (!force && now - lastUI < 500) return; lastUI = now;
     $('clock').textContent = hhmm(sim.t); $('tslider').value = Math.floor(sim.t / 300) % 288;
     $('eff').textContent = state.playing ? '實際 ' + eff.toFixed(0) + '×' : '暫停';
+    $('sun-info').textContent = V.sun.el > 0 ? '太陽高度角 ' + V.sun.el.toFixed(1) + '°，方位角 ' + V.sun.az.toFixed(0) + '°（自北順時針）' : '太陽在地平線下 ' + (-V.sun.el).toFixed(1) + '°（夜間）';
     const snap = sim.snapshot(), b = Math.floor(sim.t / 300);
     $('k-veh').textContent = snap.n.toLocaleString(); $('k-slow').textContent = snap.queued.toLocaleString();
     $('k-spillS').textContent = snap.spill.S; $('k-spillN').textContent = snap.spill.N;
@@ -83,7 +84,7 @@
       effT += rdt; effS += n * DT; if (effT > 1) { eff = effS / effT; effT = effS = 0; V.setTime(sim.t); }
       state.t = sim.t;
     }
-    V.drawVehicles(sim); V.render(rdt); refresh(false);
+    V.drawVehicles(sim); V.updateTrains(sim.t); V.render(rdt); refresh(false);
     requestAnimationFrame(frame);
   }
 
@@ -98,6 +99,7 @@
   document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => { state.t = +b.dataset.jump * 3600; start(); }));
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { if (b.dataset.scen && state.scen !== b.dataset.scen) { state.scen = b.dataset.scen; document.body.dataset.scen = state.scen; [...$('scen').querySelectorAll('button')].forEach(x => x.setAttribute('aria-pressed', x.dataset.v === state.scen)); start(); } V.flyTo(b.dataset.view); if (window.innerWidth < 760) $('panel').classList.add('collapsed'); }));
   $('hl').addEventListener('change', ev => V.setHighlight(ev.target.checked));
+  $('sh').addEventListener('change', ev => V.setShadows(ev.target.checked));
   $('lb').addEventListener('change', ev => { V.labels.visible = ev.target.checked; });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b)); document.querySelectorAll('.tab').forEach(t => { t.hidden = t.id !== 'tab-' + b.dataset.tab; }); $('panel').classList.remove('collapsed'); refresh(true); }));
   $('collapse').addEventListener('click', () => $('panel').classList.toggle('collapsed'));
@@ -126,7 +128,7 @@
 
   $('date').textContent = D.date.replace(/-/g, '/');
   $('bld-note').textContent = D.bld.length.toLocaleString();
-  function layout() { const h = $('bar').offsetHeight; if (window.innerWidth >= 760) { $('panel').style.top = (h + 10) + 'px'; $('help').style.top = (h + 10) + 'px'; } else { $('panel').style.top = ''; $('legend').style.top = (h + 8) + 'px'; } }
+  function layout() { const h = $('bar').offsetHeight; if (window.innerWidth >= 760) { $('panel').style.top = (h + 10) + 'px'; $('help').style.top = (h + 10) + 'px'; $('legend').style.top = ''; } else { $('panel').style.top = ''; $('legend').style.top = (h + 8) + 'px'; } }
   window.addEventListener('resize', layout); layout();
   V.resize(); start(); V.resize();
   $('bld-known').textContent = V.bldKnown;

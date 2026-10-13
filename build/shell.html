@@ -120,7 +120,7 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
     <div class="seg" id="speed" role="group" aria-label="模擬倍速"><button data-v="1" aria-pressed="false">1×</button><button data-v="10" aria-pressed="true">10×</button><button data-v="30" aria-pressed="false">30×</button><button data-v="60" aria-pressed="false">60×</button></div>
   </header>
 
-  <div id="help">拖曳旋轉 ・ 滾輪縮放 ・ 右鍵平移</div>
+  <div id="help">拖曳旋轉 ・ 滾輪縮放 ・ 右鍵平移 ・ WASD 移動（Shift 加速）・ Q／E 轉向</div>
 
   <aside id="panel">
     <div class="tabs" role="tablist">
@@ -160,6 +160,8 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
       <label class="par" for="tslider"><span>拖曳選擇起始時間（放開後路網清空重新進車）</span><output></output><input type="range" id="tslider" min="0" max="287" step="1" value="84"></label>
       <h2>顯示</h2>
       <div class="row"><span class="lbl">車輛著色</span><div class="pseg" id="colmode"><button data-v="speed" aria-pressed="true">依速率</button><button data-v="type" aria-pressed="false">依車種</button></div></div>
+      <label class="chk" for="sh"><input type="checkbox" id="sh" checked>即時陰影</label>
+      <p class="note" id="sun-info"></p>
       <label class="chk" for="hl"><input type="checkbox" id="hl" checked>以顏色標示新增工程</label>
       <label class="chk" for="lb"><input type="checkbox" id="lb" checked>顯示地名與門架標籤</label>
       <h2>參數（調整後重新開始模擬）</h2>
@@ -197,8 +199,13 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
       <h2>資料來源</h2>
       <ul class="src">
         <li><b>線形與匝道配置：</b>OpenStreetMap（2026/10/13 擷取），含標註 2027 年通車的施工中匝道。座標以公尺投影，模型為 1:1。</li>
+        <li><b>地面道路：</b>車道數取 OpenStreetMap 標註，未標註的路段沿用同名道路最常見的值，仍無資料者依道路等級給預設值。雙向分隔的幹道會在兩向之間畫出中央分隔島與行道樹；樹種無資料，僅文化北路依街景設為棕櫚。跨越國道的四座幹道橋（文化一路、文化二路、文化三路、文化北路／忠義路）另依 Google 街景目視判讀每向車道數、分隔島型式與人行道。</li>
         <li><b>建物：</b>OpenStreetMap 建物輪廓 <span id="bld-note"></span> 棟，其中 <span id="bld-known"></span> 棟有樓層或高度資料，其餘依建物類型給定預設高度。</li>
-        <li><b>地形與縱坡：</b>SRTM 30 m 高程，沿國道中心線平滑後作為路面縱斷面。</li>
+        <li><b>地表影像：</b>內政部國土測繪中心正射影像（通用版）WMTS，全域為第 16 級、交流道核心為第 18 級。</li>
+        <li><b>地形與縱坡：</b>SRTM 30 m 高程。先以路廊兩側高程還原台地面，國道在林口台地段下挖成路塹（路面至少低於兩側 7 m，為推定值），沿中心線平滑後作為路面縱斷面。</li>
+        <li><b>機場捷運：</b>OpenStreetMap 的主線、站內側線與 A8、A9 站體輪廓。軌道高程為推定（高於地面約 9.5 m，並自五楊高架下方穿越）。列車為示意：班距 7.5 分、普通車與直達車交錯，非實際時刻表。</li>
+        <li><b>日照：</b>依模擬日期（2026/09/08）、時刻與當地經緯度計算太陽方位角與高度角，陰影方向與長度隨時間變化。</li>
+        <li><b>林地與公園：</b>OpenStreetMap 土地使用範圍，用於配置樹木。</li>
         <li><b>車流量與車種：</b>高公局 TDCS M03A，2026/09/08（週二）門架 01F0376、01F0413、01F0467 與五楊 01H0447 的 5 分鐘各車種通過量。</li>
         <li><b>實測速率與自由流速率：</b>高公局 TDCS M05A 同日門架區間平均旅行速率；各車種期望速率取其第 85 百分位。</li>
         <li><b>計畫內容：</b><a href="https://www.freeway.gov.tw/Publish.aspx?cnid=93&p=32695" target="_blank" rel="noopener">高公局計畫頁</a>與第 1 次修正建設計畫定稿本、<a href="https://www.motc.gov.tw/ch/app/data/view?module=news&id=14&serno=202212220003" target="_blank" rel="noopener">交通部決標新聞稿</a>。</li>
@@ -229,7 +236,7 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script>window.LINKOU=/*__DATA__*/;</script>
+<script>window.LINKOU=/*__DATA__*/;window.ORTHO=/*__ORTHO__*/;</script>
 <script>/*__SIM__*/</script>
 <script>/*__VIEW__*/</script>
 <script>/*__APP__*/</script>

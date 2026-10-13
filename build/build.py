@@ -1,6 +1,8 @@
 import sys
 W=sys.argv[1];B=W+'/build/'
 s=open(B+'shell.html').read()
+import os
+s=s.replace('/*__ORTHO__*/',open(B+'ortho.json').read() if os.path.exists(B+'ortho.json') else 'null')
 for k,f in (('/*__DATA__*/','data.json'),('/*__SIM__*/','sim.js'),('/*__VIEW__*/','view.js'),('/*__APP__*/','app.js')):
     assert k in s; s=s.replace(k,open(B+f).read().replace('</script','<\\/script'))
 open(W+'/linkou-interchange.html','w').write(s)
