@@ -7,7 +7,7 @@ import base64,json
 tx={k:base64.b64encode(open(W+'/data/tex/'+k+'.jpg','rb').read()).decode() for k in sorted(f[:-4] for f in os.listdir(W+'/data/tex') if f.endswith('.jpg'))}
 s=s.replace('/*__TEXS__*/',json.dumps(tx))
 for k,f in (('/*__DATA__*/','data.json'),('/*__SIM__*/','sim.js'),('/*__VIEW__*/','view.js'),('/*__APP__*/','app.js')):
-    assert k in s; s=s.replace(k,open(B+f).read().replace('</script','<\\/script'))
+    assert k in s; s=s.replace(k,(open(B+f).read()+('\n'+open(B+'surf.js').read() if f=='sim.js' else '')).replace('</script','<\\/script'))
 open(W+'/linkou-interchange.html','w').write(s)
 # 本機預覽用：補上文件骨架
 open(B+'preview/index.html','w').write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style></head><body>'+s+'</body></html>')

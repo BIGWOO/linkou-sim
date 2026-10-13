@@ -45,7 +45,7 @@
 
   // ---------- 量測面板 ----------
   function binAvg(S, key, b0, b1) { const B = S[key]; if (!B) return null; let n = 0, st = 0, sd = 0; for (let b = b0; b <= b1; b++) if (B[b]) { n += B[b].n; st += B[b].st; sd += B[b].sd; } return n ? { n, t: st / n, st, sd } : null; }
-  function freeTime(key) { const ab = key.split('>'), sink = ab[1] === 'A_S_R' || ab[1] === 'A_S_T' ? 'A_S' : ab[1] === 'A_S_L' ? (state.scen === 'after' ? 'FLY1' : 'A_S') : ab[1]; const p = sim.pathFor(ab[0], sink); if (!p) return 0; let t = 0; p.e.forEach(e => { t += e.len / (Math.min(e.vlim, 100) / 3.6); }); return t; }
+  function freeTime(key) { const ab = key.split('>'), sink = ab[1] === 'A_S_R' ? 'A_S' : ab[1] === 'A_S_L' ? (state.scen === 'after' ? 'FLY1' : 'A_S_L') : ab[1]; const p = sim.pathFor(ab[0], sink); if (!p) return 0; let t = 0; p.e.forEach(e => { t += e.len / (Math.min(e.vlim, 100) / 3.6); }); return t; }
   let lastUI = 0;
   function refresh(force) {
     const now = performance.now(); if (!force && now - lastUI < 500) return; lastUI = now;
@@ -54,6 +54,7 @@
     $('sun-info').textContent = V.sun.el > 0 ? '太陽高度角 ' + V.sun.el.toFixed(1) + '°，方位角 ' + V.sun.az.toFixed(0) + '°（自北順時針）' : '太陽在地平線下 ' + (-V.sun.el).toFixed(1) + '°（夜間）';
     const snap = sim.snapshot(), b = Math.floor(sim.t / 300);
     $('k-veh').textContent = snap.n.toLocaleString(); $('k-slow').textContent = snap.queued.toLocaleString();
+    if (net.surf) { const c = net.surf.count(); $('k-surf').textContent = c.n.toLocaleString(); $('k-surfslow').textContent = c.slow.toLocaleString(); }
     $('k-spillS').textContent = snap.spill.S; $('k-spillN').textContent = snap.spill.N;
     let wq = 0; for (const k in snap.srcQ) wq += snap.srcQ[k]; $('k-wait').textContent = wq.toLocaleString(); $('k-miss').textContent = (sim.missed || 0).toLocaleString();
     if (!$('tab-meas').hidden || force) {
@@ -104,15 +105,17 @@
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b)); document.querySelectorAll('.tab').forEach(t => { t.hidden = t.id !== 'tab-' + b.dataset.tab; }); $('panel').classList.remove('collapsed'); refresh(true); }));
   $('collapse').addEventListener('click', () => $('panel').classList.toggle('collapsed'));
   // 參數滑桿
-  const PARS = [['growth', '需求成長倍率', 0.5, 1.6, 0.05, v => Math.round(v * 100) + '%'], ['gcA_S', '林口A 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcB_S', '林口B 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcA_N', '林口A 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcB_N', '林口B 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)],
+  const PARS = [['growth', '需求成長倍率', 0.5, 1.6, 0.05, v => Math.round(v * 100) + '%'], ['bg', '地面背景車流（相對交流道進出量，假設值）', 0, 1.2, 0.05, v => Math.round(v * 100) + '%'], ['gcA_S', '林口A 南出端（左轉／直行）綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcA_SR', '林口A 南出端（右轉專用道）綠燈比', 0.2, 0.9, 0.01, v => v.toFixed(2)], ['gcB_S', '林口B 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcA_N', '林口A 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcB_N', '林口B 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)],
+    ['gaA_S', '改善後：林口A 南出端（左轉／直行）綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaA_SR', '改善後：林口A 南出端（右轉專用道）綠燈比', 0.2, 0.9, 0.01, v => v.toFixed(2)], ['gaB_S', '改善後：林口B 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaA_N', '改善後：林口A 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaB_N', '改善後：林口B 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)],
     ['cycle', '號誌週期（秒）', 60, 240, 10, v => v + ' 秒'], ['alphaS', '南出車流走林口A的比例', 0.3, 0.9, 0.01, v => Math.round(v * 100) + '%'], ['betaS', '南入車流來自林口A的比例', 0.2, 0.8, 0.01, v => Math.round(v * 100) + '%'], ['alphaN', '北出車流走林口A的比例', 0.2, 0.8, 0.01, v => Math.round(v * 100) + '%'], ['betaN', '北入車流來自林口A的比例', 0.3, 0.9, 0.01, v => Math.round(v * 100) + '%'],
     ['left', '林口A南出左轉（往龜山）比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%'], ['newOn', '改善後使用北入新匝道比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%']];
-  const getP = k => k.startsWith('gc') ? state.par.gc[k.slice(2)] : state.par[k];
-  const setP = (k, v) => { if (k.startsWith('gc')) state.par.gc[k.slice(2)] = v; else state.par[k] = v; };
+  const getP = k => k.startsWith('gc') ? state.par.gc[k.slice(2)] : k.startsWith('ga') ? state.par.gcAfter[k.slice(2)] : state.par[k];
+  const setP = (k, v) => { if (k.startsWith('gc')) state.par.gc[k.slice(2)] = v; else if (k.startsWith('ga')) state.par.gcAfter[k.slice(2)] = v; else state.par[k] = v; };
   $('pars').innerHTML = PARS.map(p => '<label class="par" for="p-' + p[0] + '"><span>' + p[1] + '</span><output id="o-' + p[0] + '">' + p[5](getP(p[0])) + '</output><input type="range" id="p-' + p[0] + '" min="' + p[2] + '" max="' + p[3] + '" step="' + p[4] + '" value="' + getP(p[0]) + '"></label>').join('');
   PARS.forEach(p => { const el = $('p-' + p[0]); el.addEventListener('input', () => { $('o-' + p[0]).textContent = p[5](+el.value); }); el.addEventListener('change', () => { setP(p[0], +el.value); clearStore(); start(); }); });
   $('bound').addEventListener('change', ev => { state.par.bound = ev.target.checked; clearStore(); start(); });
-  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; clearStore(); start(); });
+  $('spill').addEventListener('change', ev => { state.par.spill = ev.target.checked; clearStore(); start(); });
+  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; $('spill').checked = false; clearStore(); start(); });
   // 匯出
   $('copy').addEventListener('click', () => {
     const rows = ['情境,時段起,項目,模擬流量(輛/時),實測流量(輛/時),模擬速率(km/h),實測速率(km/h),樣本數'];

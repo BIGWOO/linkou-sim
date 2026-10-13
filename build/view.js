@@ -378,17 +378,8 @@
   const medTrees = []; // [x, y, palm]
   (function streets() {
     const major = r => r.t === 'secondary' || r.t === 'tertiary';
-    // 跨越國道的四座幹道橋：依 Google 街景（2025/11–2026/03）目視判讀的車道數 [北向, 南向]、分隔型式與人行道寬
-    const BRIDGE = { '文化一路': { n: [4, 4], green: 1, sw: 2.0 }, '文化二路': { n: [2, 2], sw: 3.2 }, '文化三路': { n: [2, 3], sw: 3.2 }, '忠義路三段': { n: [4, 3], sw: 2.0 } };
-    const byName = {}; D.roads.forEach(r => { if (r.n && r.ln && major(r)) { const k = r.n + '|' + r.ow, m = byName[k] || (byName[k] = {}); m[r.ln] = (m[r.ln] || 0) + r.p.length; } });
-    const mode = k => { const m = byName[k]; if (!m) return 0; let b = 0, bn = 0; for (const q in m) if (m[q] > bn) { bn = m[q]; b = +q; } return b; };
-    D.roads.forEach(r => {
-      let n = r.ln || (major(r) ? mode(r.n + '|' + r.ow) : 0);
-      if (!n) n = r.ow ? (major(r) ? 2 : 1) : (r.t === 'service' || r.t === 'living_street' ? 1 : 2);
-      if (r.br && r.ow && major(r)) { const f = BRIDGE[r.n]; n = f ? f.n[r.p[r.p.length - 1][1] > r.p[0][1] ? 0 : 1] : Math.max(n, 2); r._bf = f; }
-      r._n = Math.min(6, n); r._w = (r.t === 'service' && !r.ln ? 4 : r._n * (major(r) ? 3.3 : 3.0) + 0.8) / 2;
-      r._pts = LK.resample(r.p, false, 8);
-    });
+    LK.roadLanes(D); // 車道數與跨越橋斷面（繪圖與地面車流模擬共用，見 surf.js）
+    D.roads.forEach(r => { r._w = (r.t === 'service' && !r.ln ? 4 : r._n * (major(r) ? 3.3 : 3.0) + 0.8) / 2; r._pts = LK.resample(r.p, false, 8); });
     const texC = {};
     const stTex = (n, ow) => texC[n + ':' + ow] || (texC[n + ':' + ow] = canvasTex(256, 128, (g, w, h) => {
       g.fillStyle = '#6a6e73'; g.fillRect(0, 0, w, h); noise(g, w, h, 2500, 0.08, false); noise(g, w, h, 2500, 0.12, true);
@@ -401,22 +392,28 @@
     // 路口偵測：把所有道路（含匝道與其銜接段）的取樣點放進格網，分隔島與行道樹遇到橫交道路就中斷
     const xg = new Map(), xk = (x, y) => (Math.floor(x / 16) + 1000) * 4096 + Math.floor(y / 16) + 1000, xput = (x, y, id) => { const k = xk(x, y); let a = xg.get(k); if (!a) xg.set(k, a = []); a.push(x, y, id); };
     const nameId = {}; let nid = 1; D.roads.forEach((r, ri) => { const id = r.n ? (nameId[r.n] || (nameId[r.n] = nid++)) : -ri - 1; r._id = id; r._pts.forEach(p => xput(p[0], p[1], id)); });
-    D.edges.forEach(e => { if (e.k === 'l' || e.k === 'n') LK.resample(e.p, false, 8).forEach(p => xput(p[0], p[1], 0)); }); for (const k in (D.stubs || {})) LK.resample(D.stubs[k], false, 8).forEach(p => xput(p[0], p[1], 0));
+    D.edges.forEach(e => { if (e.k === 'l' || e.k === 'n') LK.resample(e.p, false, 8).forEach(p => xput(p[0], p[1], 0)); });
     const crossing = (x, y, id, rad) => { const c = Math.ceil(rad / 16); for (let a = -c; a <= c; a++) for (let b = -c; b <= c; b++) { const arr = xg.get(xk(x + a * 16, y + b * 16)); if (!arr) continue; for (let i = 0; i < arr.length; i += 3) if (arr[i + 2] !== id && Math.hypot(arr[i] - x, arr[i + 1] - y) < rad) return true; } return false; };
     // 對向車道索引（同名、單行、方向相反）
     const pairs = {}; D.roads.forEach((r, ri) => { if (r.ow && major(r) && r.n) (pairs[r.n] = pairs[r.n] || []).push(ri); });
+    // 同一車道（同名、同為單行或雙向）前後路段車道數不同時，以 35 m 漸變段銜接，不讓路寬在節點突變
+    const wAt = new Map(), wk = (p, r) => Math.round(p[0] * 10) + ',' + Math.round(p[1] * 10) + '|' + r.n + '|' + r.ow;
+    D.roads.forEach(r => { if (!major(r) || !r.n || r.br) return; wAt.set('e' + wk(r.p[r.p.length - 1], r), r._w); wAt.set('s' + wk(r.p[0], r), r._w); });
     D.roads.forEach((r, ri) => {
-      const w = r._w, pts = r._pts, n = pts.length, key = r._n + ':' + r.ow, G = groups[key] || (groups[key] = { P: [], U: [], N: [], I: [], base: 0, n: r._n, ow: r.ow });
+      const W0 = r._w, pts = r._pts, n = pts.length, key = r._n + ':' + r.ow, G = groups[key] || (groups[key] = { P: [], U: [], N: [], I: [], base: 0, n: r._n, ow: r.ow });
       let hs = pts.map(p => gh(p[0], p[1]) + 0.18);
       if (r.br) { // 跨越橋：兩端接地，中段至少高出國道 6.8 m
         const hA = hs[0], hB = hs[n - 1], mid = pts[n >> 1], need = terr.M(mid[0]) + 6.8, bump = Math.max(0, need - (hA + hB) / 2);
         hs = pts.map((p, i) => { const t = i / (n - 1); return hA + (hB - hA) * t + bump * LK.sstep(Math.min(1, Math.min(t, 1 - t) * 3.2)); });
       }
+      r._hs = hs;
       const others = r.ow && major(r) && r.n ? pairs[r.n].filter(q => q !== ri) : null;
-      let s = 0, prevM = null, prevOver = false;
+      let s = 0, prevM = null, prevOver = false, wIn, wOut, Ltot = 0;
+      if (major(r) && r.n && !r.br) { wIn = wAt.get('e' + wk(r.p[0], r)); wOut = wAt.get('s' + wk(r.p[r.p.length - 1], r)); for (let i = 1; i < n; i++) Ltot += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); }
       for (let i = 0; i < n; i++) {
         const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)], d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, hx = (b[0] - a[0]) / d, hy = (b[1] - a[1]) / d, rx = hy, ry = -hx, p = pts[i];
         if (i) s += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]);
+        let w = W0; { const T = Math.min(35, Ltot * 0.45); if (wIn < W0 && s < T) w = wIn + (W0 - wIn) * LK.sstep(s / T); else if (wOut < W0 && Ltot - s < T) w = wOut + (W0 - wOut) * LK.sstep((Ltot - s) / T); }
         let sh = 0, narrow = false;
         // 中央分隔島：向左找對向車道，兩者之間鋪綠帶，各畫一半
         let cur = null;
@@ -425,18 +422,18 @@
           for (const oi of others) { const o = D.roads[oi], op = o._pts; for (let j = 0; j < op.length; j++) { const dx = op[j][0] - p[0], dy = op[j][1] - p[1], dd = Math.hypot(dx, dy); if (dd >= bd || dx * -rx + dy * -ry < 2) continue; const c = op[Math.min(op.length - 1, j + 1)], e = op[Math.max(0, j - 1)]; if ((c[0] - e[0]) * hx + (c[1] - e[1]) * hy > 0) continue; bd = dd; bw = o._w; bi = oi; } }
           let gap = bd - w - bw;
           const mx = p[0] - rx * (w + Math.max(gap, 1) / 2), my = p[1] - ry * (w + Math.max(gap, 1) / 2);
-          if (bi >= 0 && !crossing(mx, my, r._id, Math.max(gap, 1) / 2 + 5)) {
+          if (bi >= 0 && !crossing(mx, my, r._id, Math.max(gap, 1) / 2 + 3)) {
             if (gap < 1) { sh = (1 - gap) / 2; gap = 1; } // 兩向中心線太近：各自外移，中間留 1 m 分隔島
             narrow = gap < 2.2 || !!r.br; // 橋上為鋪面分隔島
             cur = [[p[0] + rx * (sh - w), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w))], [p[0] + rx * (sh - w - gap / 2 - 0.05), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap / 2 - 0.05))]];
-            if (ri < bi && i % 2 === 1 && gap > 2.2 && !r.br && !crossing(mx, my, r._id, gap / 2 + 18)) medTrees.push(p[0] - rx * (w + gap / 2), p[1] - ry * (w + gap / 2), r.n.indexOf('文化北路') === 0 ? 1 : 0);
+            if (ri < bi && i % 2 === 1 && gap > 2.2 && !r.br && !crossing(mx, my, r._id, gap / 2 + 18)) medTrees.push(p[0] - rx * (w + gap / 2), p[1] - ry * (w + gap / 2), r.n.indexOf('文化北路') === 0 || r.n === '文化一路一段' ? 1 : 0);
             if (ri < bi && narrow && !(r._bf && r._bf.green)) box(conc2, p[0] + rx * (sh - w - gap / 2), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap / 2)), 0.14, 0.75, 0.14, [0.92, 0.45, 0.12]); // 橘色導桿
           }
         }
         G.P.push(p[0] + rx * (sh - w), hs[i] - BASE, -(p[1] + ry * (sh - w)), p[0] + rx * (sh + w), hs[i] - BASE, -(p[1] + ry * (sh + w))); G.U.push(0, s / 10, 1, s / 10); G.N.push(0, 1, 0, 0, 1, 0);
         const over = !r.br && Math.abs(p[1] - terr.Yc(p[0])) < 40 && hs[i] - terr.M(p[0]) > 2.5; // 未標為橋卻懸在國道上方的路段不畫
         if (i && !over && !prevOver) { const q = G.base + (i - 1) * 2; G.I.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); } prevOver = over;
-        if (!r.br && Math.abs(p[1] - terr.Yc(p[0])) > 30) streetS.push(p[0], p[1], hs[i] - 0.18, w + 1.5);
+        if (!r.br && Math.abs(p[1] - terr.Yc(p[0])) > 30) streetS.push(p[0], p[1], hs[i] - 0.18, w + (major(r) ? 4.5 : 1.5));
         if (cur && prevM) { const f = 0.9 + hash(ri, i) * 0.2; quad(med, prevM[0], cur[0], cur[1], prevM[1], narrow && !(r._bf && r._bf.green) ? [0.62, 0.62, 0.6] : [0.34 * f, 0.5 * f, 0.24 * f]); quad(med, [prevM[0][0], prevM[0][1] - 0.2, prevM[0][2]], [cur[0][0], cur[0][1] - 0.2, cur[0][2]], cur[0], prevM[0], [0.72, 0.72, 0.7]); }
         prevM = cur;
         if (r.br && i) { // 橋面：外側人行道與欄杆；未成對的橋兩側都設護欄
@@ -451,14 +448,39 @@
       G.base += n * 2;
     });
     V._crossing = crossing;
-    // 路口：三向以上交會處鋪一塊無標線的路面，蓋掉各路段穿過路口的車道線
-    { const arms = new Map(), key = p => Math.round(p[0] * 10) + ',' + Math.round(p[1] * 10), addA = (p, n, w) => { const k = key(p); let a = arms.get(k); if (!a) arms.set(k, a = { p, n: 0, w: 0 }); a.n += n; if (w > a.w) a.w = w; };
-      D.roads.forEach(r => { if (r.br) return; r.p.forEach((p, i) => addA(p, i === 0 || i === r.p.length - 1 ? 1 : 2, r._w)); });
-      D.edges.forEach(e => { if (e.k === 'l' || e.k === 'n') { addA(e.p[0], 1, 4); addA(e.p[e.p.length - 1], 1, 4); } });
-      const JP = [], JU = [], JN = [], JI = []; let jb = 0;
-      arms.forEach(a => { if (a.n < 3 || Math.abs(a.p[1] - terr.Yc(a.p[0])) < 30) return; const R = a.w * 1.35 + 2.5, y = gh(a.p[0], a.p[1]) + 0.2 - BASE; JP.push(a.p[0], y, -a.p[1]); JU.push(0.5, 0.5); JN.push(0, 1, 0); for (let q = 0; q < 14; q++) { const t = q / 14 * 6.2832, cx = Math.cos(t), sy = Math.sin(t); JP.push(a.p[0] + cx * R, y, -(a.p[1] + sy * R)); JU.push(0.5 + cx * R / 12, 0.5 + sy * R / 12); JN.push(0, 1, 0); JI.push(jb, jb + 1 + q, jb + 1 + (q + 1) % 14); } jb += 15; });
+    // 林口A南出匝道口的槽化島：右轉槽化車道、5 車道進口與文化一路北向三者圍出的三角區（依高公局示意圖與空拍影像）
+    { const slip = D.edges.find(e => e.id === '182679857_0'), app = D.edges.find(e => e.id === '790658669_0'), nr = (r, c) => r.n === '文化一路一段' && Math.hypot(r.p[0][0] - c[0], r.p[0][1] - c[1]) < 3, r1 = D.roads.find(r => nr(r, [265, 68])), r2 = D.roads.find(r => nr(r, [263.6, 103.5]));
+      if (slip && app && r1 && r2) {
+        const lines = [[LK.resample(slip.p, false, 1.5), 5.2, 1], [LK.resample(app.p, false, 1.5), 8.4, -1], [LK.resample(r1.p.concat(r2.p.slice(1)), false, 1.5), r2._w + 1, -1]]; // [折線, 與中心線的淨距, 島在行進方向的左(1)/右(-1)側]
+        const sd = (P, x, y) => { let bd = 1e9, sg = 0; for (let i = 1; i < P.length; i++) { const ax = P[i - 1][0], ay = P[i - 1][1], dx = P[i][0] - ax, dy = P[i][1] - ay, L2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2)), d = Math.hypot(x - ax - dx * t, y - ay - dy * t); if (d < bd) { bd = d; sg = dx * (y - ay) - dy * (x - ax) > 0 ? 1 : -1; } } return bd * sg; };
+        const pts = [];
+        lines.forEach((ln, li) => { const P = ln[0]; for (let i = 1; i < P.length; i++) { const dx = P[i][0] - P[i - 1][0], dy = P[i][1] - P[i - 1][1], L = Math.hypot(dx, dy) || 1, x = P[i][0] - dy / L * ln[1] * ln[2], y = P[i][1] + dx / L * ln[1] * ln[2]; if (lines.every((o, oi) => oi === li ? Math.abs(sd(o[0], x, y) * o[2] - o[1]) < 0.3 : sd(o[0], x, y) * o[2] > o[1] - 0.05)) pts.push([x, y]); } });
+        if (pts.length >= 3) {
+          let cx = 0, cy = 0; pts.forEach(p => { cx += p[0]; cy += p[1]; }); cx /= pts.length; cy /= pts.length; pts.sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+          const V3 = (p, k, dz) => { const x = cx + (p[0] - cx) * k, y = cy + (p[1] - cy) * k; return [x, gh(x, y) + dz - BASE, -y]; }, fan = (k, dz, col) => { const c = V3([cx, cy], 1, dz); for (let i = 0; i < pts.length; i++) { const a = V3(pts[i], k, dz), b = V3(pts[(i + 1) % pts.length], k, dz); tri(med, c[0], c[1], c[2], b[0], b[1], b[2], a[0], a[1], a[2], col); } };
+          fan(1, 0.36, [0.72, 0.72, 0.7]); fan(0.88, 0.4, [0.33, 0.5, 0.24]);
+          medTrees.push(cx, cy, 1); pts.filter((p, i) => i % Math.ceil(pts.length / 4) === 0).forEach(p => medTrees.push(cx + (p[0] - cx) * 0.55, cy + (p[1] - cy) * 0.55, 1));
+          V.island = pts.length;
+        }
+      }
+    }
+    // 路口：三向以上交會處，以各進口斷面圍成的凸多邊形鋪一塊無標線的路面（斜交的匝道口、分流口只鋪很短的一段）
+    { const arms = new Map(), key = p => Math.round(p[0] * 10) + ',' + Math.round(p[1] * 10);
+      const addA = (p, q, w, n) => { const k = key(p); let a = arms.get(k); if (!a) arms.set(k, a = { p, n: 0, d: [] }); a.n += n; if (q) { const L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (L > 0.5) a.d.push([(q[0] - p[0]) / L, (q[1] - p[1]) / L, w, L]); } };
+      D.roads.forEach(r => { if (r.br) return; const P = r.p; P.forEach((p, i) => { const end = i === 0 || i === P.length - 1; addA(p, i ? P[i - 1] : null, r._w, end ? 1 : 2); if (i < P.length - 1) addA(p, P[i + 1], r._w, 0); }); });
+      D.edges.forEach(e => { if (e.k !== 'l' && e.k !== 'n') return; const P = e.p, w = (e.ln || 1) * 1.9 + 1.2; addA(P[0], P[1], w, 1); addA(P[P.length - 1], P[P.length - 2], w, 1); });
+      const hull = pts => { pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = []; for (const p of pts) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); } for (let q = pts.length - 1; q >= 0; q--) { const p = pts[q]; while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); } lo.pop(); up.pop(); return lo.concat(up); };
+      const JP = [], JU = [], JN = [], JI = []; let jb = 0, jc = 0;
+      arms.forEach(a => {
+        if (a.n < 3 || a.d.length < 3 || Math.abs(a.p[1] - terr.Yc(a.p[0])) < 30) return;
+        const pts = [];
+        a.d.forEach(u => { let d = 2.5; a.d.forEach(o => { const sn = Math.abs(u[0] * o[1] - u[1] * o[0]); if (o !== u && sn > 0.4) d = Math.max(d, Math.min(20, o[2] / sn + 1.2)); }); d = Math.min(d, u[3] * 0.6 + 2); pts.push([a.p[0] + u[0] * d + u[1] * u[2], a.p[1] + u[1] * d - u[0] * u[2]], [a.p[0] + u[0] * d - u[1] * u[2], a.p[1] + u[1] * d + u[0] * u[2]]); });
+        const H = hull(pts); if (H.length < 3) return; let cx = 0, cy = 0; H.forEach(p => { cx += p[0]; cy += p[1]; }); cx /= H.length; cy /= H.length;
+        const put = p => { JP.push(p[0], gh(p[0], p[1]) + 0.21 - BASE, -p[1]); JU.push(p[0] / 12, p[1] / 12); JN.push(0, 1, 0); };
+        put([cx, cy]); H.forEach(put); for (let q = 0; q < H.length; q++) JI.push(jb, jb + 1 + q, jb + 1 + (q + 1) % H.length); jb += H.length + 1; jc++;
+      });
       const jg = new T3.BufferGeometry(); jg.setAttribute('position', new T3.Float32BufferAttribute(JP, 3)); jg.setAttribute('uv', new T3.Float32BufferAttribute(JU, 2)); jg.setAttribute('normal', new T3.Float32BufferAttribute(JN, 3)); jg.setIndex(JI);
-      const jm = new T3.Mesh(jg, new T3.MeshLambertMaterial({ map: canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#6a6e73'; g.fillRect(0, 0, w, h); noise(g, w, h, 1500, 0.08, false); noise(g, w, h, 1500, 0.12, true); }), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })); jm.receiveShadow = true; scene.add(jm); V.junctions = jb / 15; }
+      const jm = new T3.Mesh(jg, new T3.MeshLambertMaterial({ map: canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#6a6e73'; g.fillRect(0, 0, w, h); noise(g, w, h, 1500, 0.08, false); noise(g, w, h, 1500, 0.12, true); }), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })); jm.receiveShadow = true; scene.add(jm); V.junctions = jc; }
     for (const k in groups) { const G = groups[k], g = new T3.BufferGeometry(); g.setAttribute('position', new T3.Float32BufferAttribute(G.P, 3)); g.setAttribute('uv', new T3.Float32BufferAttribute(G.U, 2)); g.setAttribute('normal', new T3.Float32BufferAttribute(G.N, 3)); g.setIndex(G.I); const sm = new T3.Mesh(g, new T3.MeshLambertMaterial({ map: stTex(G.n, G.ow), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })); sm.receiveShadow = true; scene.add(sm); }
     { const bm = toMesh(conc, new T3.MeshLambertMaterial({ color: 0xb4b2ab, side: T3.DoubleSide })); bm.castShadow = bm.receiveShadow = true; scene.add(bm); { const c2 = toMesh(conc2, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide })); c2.castShadow = c2.receiveShadow = true; scene.add(c2); } if (med.p.length) { const mm = toMesh(med, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })); mm.receiveShadow = true; scene.add(mm); } }
   })();
@@ -605,16 +627,53 @@
   let netGroup = null; const GC = { so: 0xff8e7a, ni: 0x7fb2ff, ws: 0x7fe0d2, wn: 0xf2d16b };
   V.GC = GC; V.highlight = true;
   const concPlain = new T3.MeshLambertMaterial({ color: 0xbdbbb4, side: T3.DoubleSide });
+  let surfSig = null;
+  // 地面路網：路面高程取自街道幾何；號誌化進口在停止線右側立燈號
+  function surfInit(net) {
+    surfSig = null; const S = net.surf; if (!S) return;
+    S.links.forEach(e => { const r = D.roads[e.ri], P = r._pts, H = r._hs; for (let i = 0; i < e.np; i++) { let bd = 1e18, bj = 0; for (let q = 0; q < P.length; q++) { const dx = P[q][0] - e.X[i], dy = P[q][1] - e.Y[i], d = dx * dx + dy * dy; if (d < bd) { bd = d; bj = q; } } e.Z[i] = H[bj]; } });
+    const L = S.links.filter(e => e.sg); if (!L.length) return;
+    const poles = Acc(), PP = [0, 0, 0, 0, 0, 0], m = new T3.InstancedMesh(new T3.BoxGeometry(0.5, 1.3, 0.5), new T3.MeshBasicMaterial(), L.length), M = new T3.Matrix4();
+    L.forEach((e, i) => { LK.posAt(e, e.stop, LK.laneOff(e, e.n - 1) + e.lw / 2 + 1.3, PP); box(poles, PP[0], PP[2] - BASE, -PP[1], 0.16, 5.2, 0.16, [0.3, 0.32, 0.34]); M.makeTranslation(PP[0], PP[2] - BASE + 5.4, -PP[1]); m.setMatrixAt(i, M); m.setColorAt(i, new T3.Color(0xe5332a)); e._g = null; });
+    m.userData.links = L; m.frustumCulled = false; netGroup.add(m); netGroup.add(toMesh(poles, new T3.MeshLambertMaterial({ vertexColors: true }))); surfSig = m;
+  }
+  // 情境別的周邊地貌。現況：航照即施工中的樣貌（圍籬、工務所、裸露地），不另加東西；
+  // 改善後：依高公局示意圖，南出高架匝道環圈內側整地為草地並植樹，蓋掉航照上的施工設施
+  function scenery(net) {
+    if (net.scen !== 'after') { const P = label('高架匝道施工中', 250, 205, 0, { bg: 'rgba(120,110,95,0.92)', size: 0.03 }); if (P) { P.position.y = gh(250, 205) - BASE + 22; netGroup.add(P); } return; }
+    const loop = D.edges.find(e => e.id === '1122274253_0'); if (!loop) return;
+    const poly = LK.resample(loop.p, false, 4).filter(p => p[1] > 84);
+    const inside = (x, y) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+    const lawn = Acc(), G = 3, ok = (x, y) => y > 88 && inside(x, y) && !V._crossing(x, y, -1e9, 6.5), tp = [];
+    for (let x = 170; x < 380; x += G) for (let y = 86; y < 206; y += G) {
+      if (!(ok(x, y) && ok(x + G, y) && ok(x, y + G) && ok(x + G, y + G))) continue;
+      const f = 0.97 + hash(x, y) * 0.06, V3 = (a, b) => [a, Hq(a, b) + 0.13 - BASE, -b];
+      quad(lawn, V3(x, y), V3(x + G, y), V3(x + G, y + G), V3(x, y + G), [0.36 * f, 0.55 * f, 0.26 * f]);
+      if (hash(y, x) > 0.93 && !V._crossing(x, y, -1e9, 13)) tp.push([x, y]);
+    }
+    if (!lawn.p.length) return;
+    const lm = toMesh(lawn, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })); lm.receiveShadow = true; netGroup.add(lm);
+    if (tp.length) {
+      const cr = new T3.InstancedMesh(new T3.IcosahedronGeometry(1, 0), new T3.MeshLambertMaterial({ color: 0x3f7a35, flatShading: true }), tp.length), tk = Acc(), M = new T3.Matrix4();
+      tp.forEach((p, i) => { const h = 5 + hash(p[0], p[1] + 7) * 3, y = Hq(p[0], p[1]) - BASE; box(tk, p[0], y, -p[1], 0.35, h * 0.55, 0.35, [0.36, 0.27, 0.18]); M.makeScale(h * 0.42, h * 0.5, h * 0.42); M.setPosition(p[0], y + h * 0.8, -p[1]); cr.setMatrixAt(i, M); });
+      cr.castShadow = true; netGroup.add(cr); const tm = toMesh(tk, new T3.MeshLambertMaterial({ vertexColors: true })); tm.castShadow = true; netGroup.add(tm);
+    }
+    V.lawn = lawn.p.length / 18;
+  }
   V.buildNet = function (net) {
     if (netGroup) { scene.remove(netGroup); netGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
     netGroup = new T3.Group(); scene.add(netGroup); V.net = net; V.newMats = [];
     buildHash(net); corridor(); if (!staticDone) { staticDone = true; coarse(); trees(); railway(net); }
+    surfInit(net);
     const conc = Acc(), hedge = Acc(), P = [0, 0, 0, 0, 0, 0];
-    net.edges.forEach(e => {
+    // 現況：新增的高架匝道尚在施工，只畫出橋面與橋墩（無標線、無車流）；改善後才通車
+    const ghosts = net.scen === 'before' ? (V._ghost || (V._ghost = LK.buildNet(D, 'after', terr, { surf: false }).edges.filter(e => e.k === 'n' && e.br))) : null;
+    const ghostMat = new T3.MeshLambertMaterial({ color: 0x8f877c, side: T3.DoubleSide });
+    const drawEdge = (e, ghost) => {
       if (e.k === 's') return; // 地面道路段沿用既有街道路面
       const main = e.k === 'm' || e.k === 'v', sl = main ? 1.0 : 0.8, sr = main ? 3.0 : 1.5, nb = e.nb || e.n, halfL = nb * e.lw / 2, halfR = (e.n - nb / 2) * e.lw, half = e.n * e.lw / 2, pts = edgePts(e);
-      const mat = new T3.MeshLambertMaterial({ map: laneTex(e.n, e.lw, sl, sr, main), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: e.k === 'm' ? -6 : -3 - Math.min(2, e.n) * 0.5, polygonOffsetUnits: e.k === 'm' ? -12 : -6 - Math.min(2, e.n) }); // 主線蓋過匝道：匝道在匯出入口從主線路緣下方接出
-      if (e.grp) { mat.userData = { grp: e.grp }; V.newMats.push(mat); if (V.highlight) mat.color.setHex(GC[e.grp]); }
+      const mat = ghost ? ghostMat : new T3.MeshLambertMaterial({ map: laneTex(e.n, e.lw, sl, sr, main), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: e.k === 'm' ? -6 : -3 - Math.min(2, e.n) * 0.5, polygonOffsetUnits: e.k === 'm' ? -12 : -6 - Math.min(2, e.n) }); // 主線蓋過匝道：匝道在匯出入口從主線路緣下方接出
+      if (e.grp && !ghost) { mat.userData = { grp: e.grp }; V.newMats.push(mat); if (V.highlight) mat.color.setHex(GC[e.grp]); }
       const m = new T3.Mesh(ribbonGeo(pts, halfL + sl, halfR + sr, 10, e.k === 'm' ? 0.3 : 0.24), mat); m.userData.edge = e; m.receiveShadow = true; netGroup.add(m);
       const wl = halfL + sl, wr = halfR + sr;
       // 中央護欄、高架側牆、橋墩、擋土牆
@@ -648,7 +707,9 @@
           support(conc, P[0], P[1], P[2], P[3], P[4], e.n * e.lw / 2 + 2, e.k === 'v');
         }
       }
-    });
+    };
+    net.edges.forEach(e => drawEdge(e, false)); if (ghosts) ghosts.forEach(e => drawEdge(e, true));
+    scenery(net);
     conc.u = []; { const cm = toMesh(conc, concPlain); cm.castShadow = cm.receiveShadow = true; netGroup.add(cm); const hm = toMesh(hedge, new T3.MeshLambertMaterial({ vertexColors: true })); hm.castShadow = true; netGroup.add(hm); }
     // ETC 門架與號誌
     V.sigs = [];
@@ -693,7 +754,7 @@
   V.colorMode = 'speed';
   const M4 = new T3.Matrix4(), Q = new T3.Quaternion(), E = new T3.Euler(0, 0, 0, 'YZX'), S1 = new T3.Vector3(1, 1, 1), PV = new T3.Vector3(), COL = new T3.Color(), PP = [0, 0, 0, 0, 0, 0];
   V.drawVehicles = function (sim) {
-    const cnt = [0, 0, 0, 0, 0], edges = sim.net.edges, spd = V.colorMode === 'speed';
+    const net = sim.net, surf = net.surf, edges = surf ? (net._all || (net._all = net.edges.concat(surf.links))) : net.edges, cnt = [0, 0, 0, 0, 0], spd = V.colorMode === 'speed';
     for (let ei = 0; ei < edges.length; ei++) {
       const e = edges[ei], vref = e.vlim / 3.6;
       for (let l = 0; l < e.n; l++) {
@@ -702,7 +763,7 @@
           const v = arr[i], ci = v.cls, k = cnt[ci]; if (k >= MAXV[ci]) continue;
           LK.posAt(e, v.s, v.lat, PP);
           E.set(0, Math.atan2(PP[4], PP[3]), Math.atan(PP[5])); Q.setFromEuler(E);
-          if (e.stub) { const f = Math.max(0.02, Math.min(1, (e.stub === 'out' ? e.len - v.s : v.s + 4) / 28)); S1.set(f, f, f); } else S1.set(1, 1, 1); // 進出模型邊界時漸顯／漸隱
+          if (e.stub && !surf) { const f = Math.max(0.02, Math.min(1, (e.stub === 'out' ? e.len - v.s : v.s + 4) / 28)); S1.set(f, f, f); } else S1.set(1, 1, 1); // 進出模型邊界時漸顯／漸隱
           PV.set(PP[0] + v.ox, PP[2] - BASE + 0.32, -(PP[1] + v.oy)); M4.compose(PV, Q, S1); vmesh[ci].setMatrixAt(k, M4);
           if (spd) { const r = Math.min(1, v.v / vref); COL.setHSL(r * 0.34, 0.85, 0.46); }
           else { const pal = ci === 0 ? CARCOL : CLSCOL[ci], c = pal[(v.col * pal.length) | 0]; COL.setRGB(c[0], c[1], c[2]); }
@@ -712,6 +773,7 @@
     }
     for (let ci = 0; ci < 5; ci++) { vmesh[ci].count = cnt[ci]; vmesh[ci].instanceMatrix.needsUpdate = true; if (vmesh[ci].instanceColor) vmesh[ci].instanceColor.needsUpdate = true; }
     if (V.sigs) V.sigs.forEach(s => s.lamp.material.color.setHex(sim.green(s.key) ? 0x1fd65a : 0xe5332a));
+    if (surfSig) { const L = surfSig.userData.links; for (let i = 0; i < L.length; i++) { const g = surf.green(L[i]); if (g !== L[i]._g) { L[i]._g = g; COL.setHex(g ? 0x1fd65a : 0xe5332a); surfSig.setColorAt(i, COL); surfSig.instanceColor.needsUpdate = true; } } }
   };
 
   // 太陽位置：依模擬日期、時刻與當地經緯度計算（NOAA 簡化式），同時決定光色、天空與陰影方向
