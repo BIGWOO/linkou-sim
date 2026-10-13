@@ -93,9 +93,87 @@ ff=[]
 for ci in range(5):
     allv=sorted(sum((cls[k][ci] for k in cls),[]))
     ff.append(allv[int(len(allv)*0.85)] if allv else 90)
+# 匝道端點銜接的地面道路（出口駛離段、入口進場段），沿 OSM 道路走 180 m
+TERM_OUT={'A_S':[263,103],'A_S_T':[264,74],'B_S':[-914,86],'B_N':[-1106,-102],'A_N':[70,-82],'FLY1':[313,-261],'FLY2':[289,-252]}
+TERM_IN={'A_S_on':[136,64],'B_S_on':[-1090,80],'B_N_on':[-979,-98],'A_N_on':[278,-75],'A_N_on2':[281,267]}
+sw=[e for e in els if e['tags'].get('highway') and e['tags']['highway'] not in SK and 'bridge' not in e['tags']]
+npos={};nway=collections.defaultdict(list)
+for e in sw:
+    for i,(n,p) in enumerate(zip(e['nodes'],e['geometry'])):
+        npos[n]=xy(p);nway[n].append((e,i))
+mpts=[]
+for e in net:
+    if kind(e)=='m':
+        g=[xy(p) for p in e['geometry']]
+        for i in range(1,len(g)):
+            L=math.dist(g[i-1],g[i]);k=max(1,int(L/25))
+            mpts+=[(g[i-1][0]+(g[i][0]-g[i-1][0])*q/k,g[i-1][1]+(g[i][1]-g[i-1][1])*q/k) for q in range(k+1)]
+def dmain(p):return min((p[0]-q[0])**2+(p[1]-q[1])**2 for q in mpts)**.5
+def nbrs(n,fwd):
+    out=[]
+    for e,i in nway[n]:
+        ow=e['tags'].get('oneway');ns=e['nodes']
+        f=i+1 if ow!='-1' else i-1;b=i-1 if ow!='-1' else i+1
+        one=ow in('yes','-1') or e['tags'].get('junction')=='roundabout'
+        cand=[f] if one else [f,b]
+        if not fwd:cand=[b] if one else [f,b]
+        for j in cand:
+            if 0<=j<len(ns):out.append(ns[j])
+    return out
+def walk(c,fwd,L=180):
+    n0=min(npos,key=lambda n:math.dist(npos[n],c))
+    if math.dist(npos[n0],c)>20:return None
+    path=[n0];tot=0;dirv=None
+    while tot<L:
+        n=path[-1];cs=[m for m in nbrs(n,fwd) if m not in path]
+        if not cs:break
+        if dirv is None:m=max(cs,key=lambda m:dmain(npos[m])-dmain(npos[n]))
+        else:m=max(cs,key=lambda m:((npos[m][0]-npos[n][0])*dirv[0]+(npos[m][1]-npos[n][1])*dirv[1])/(math.dist(npos[m],npos[n]) or 1))
+        dl=math.dist(npos[m],npos[n]);dirv=((npos[m][0]-npos[n][0])/(dl or 1),(npos[m][1]-npos[n][1])/(dl or 1));tot+=dl;path.append(m)
+    pts=[[r1(npos[n][0]),r1(npos[n][1])] for n in path]
+    return pts if fwd else pts[::-1]
+stubs={}
+for k,c in TERM_OUT.items():
+    p=walk(c,True)
+    if p and len(p)>1:stubs[k]=p
+for k,c in TERM_IN.items():
+    p=walk(c,False)
+    if p and len(p)>1:stubs[k]=p
+for k,p in stubs.items():print(k,len(p),p[0],p[-1],round(sum(math.dist(p[i],p[i+1]) for i in range(len(p)-1))))
+# 綠地（林地 w、公園草地 p、水域 a）
+green=[]
+try:
+    gd=json.load(open(W+'/data/green.json'))
+    def gk(t):
+        if t.get('natural') in('wood','scrub') or t.get('landuse')=='forest':return 'w'
+        if t.get('natural')=='water':return 'a'
+        return 'p'
+    for e in gd['elements']:
+        rings=[]
+        if e['type']=='way' and 'geometry' in e:rings=[e['geometry']]
+        elif e['type']=='relation':rings=[m['geometry'] for m in e.get('members',[]) if m.get('role')=='outer' and 'geometry' in m and m['geometry'][0]==m['geometry'][-1]]
+        for g in rings:
+            pts=[xy(q) for q in g]
+            if len(pts)>=4 and any(-4300<x<4000 and -1800<y<1400 for x,y in pts):green.append(dict(t=gk(e['tags']),p=[[round(x),round(y)] for x,y in pts[:-1]]))
+except Exception as ex:print('no green data',ex)
+print('green polys',len(green))
+# 機場捷運：主線、站內側線與車站
+rail=dict(tracks=[],st=[])
+try:
+    rd=json.load(open(W+'/data/rail.json'))
+    for e in rd['elements']:
+        t=e.get('tags',{})
+        if e['type']=='way' and t.get('railway')=='subway' and 'tunnel' not in t and 'geometry' in e:
+            pts=[xy(q) for q in e['geometry']];pts=[q for q in pts if -4300<q[0]<4000 and -1800<q[1]<1400]
+            if len(pts)>=2:rail['tracks'].append(dict(m=0 if t.get('service') else 1,p=[[r1(x),r1(y)] for x,y in pts]))
+        if e['type']=='node' and t.get('railway')=='station':
+            x,y=xy(e)
+            if -4300<x<4000 and -1800<y<1400:rail['st'].append(dict(n=t.get('name',''),ref=t.get('ref',''),x=r1(x),y=r1(y)))
+except Exception as ex:print('no rail data',ex)
+print('rail tracks',len(rail['tracks']),'stations',[s['ref'] for s in rail['st']])
 el=json.load(open(W+'/data/elev.json'))
 el['h']=[round(v) for v in el['h']]
-out=dict(origin=[LAT0,LON0],edges=edges,roads=roads,bld=bld,elev=el,vol=vol,spd=spd,ff=ff,date='2026-09-08')
+out=dict(origin=[LAT0,LON0],rail=rail,green=green,stubs=stubs,edges=edges,roads=roads,bld=bld,elev=el,vol=vol,spd=spd,ff=ff,date='2026-09-08')
 s=json.dumps(out,ensure_ascii=False,separators=(',',':'))
 open(W+'/build/data.json','w').write(s)
 print(len(s),len(edges),len(roads),len(bld),ff)

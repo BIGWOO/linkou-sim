@@ -21,30 +21,43 @@
       const i = fx | 0, j = fy | 0, u = fx - i, v = fy - j, k = j * nx + i;
       return (H[k] * (1 - u) + H[k + 1] * u) * (1 - v) + (H[k + nx] * (1 - u) + H[k + nx + 1] * u) * v;
     }
-    const X0 = -4400, DX = 50, N = 172;
-    const sy = new Float64Array(N), sc = new Float64Array(N);
+    const X0 = -4400, DX = 50, N_ = 172;
+    const sy = new Float64Array(N_), sc = new Float64Array(N_);
     D.edges.forEach(e => {
       if (e.k !== 'm') return;
       for (let i = 1; i < e.p.length; i++) {
         const a = e.p[i - 1], b = e.p[i], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 20));
-        for (let q = 0; q <= n; q++) { const x = a[0] + (b[0] - a[0]) * q / n, y = a[1] + (b[1] - a[1]) * q / n, k = Math.round((x - X0) / DX); if (k >= 0 && k < N) { sy[k] += y; sc[k]++; } }
+        for (let q = 0; q <= n; q++) { const x = a[0] + (b[0] - a[0]) * q / n, y = a[1] + (b[1] - a[1]) * q / n, k = Math.round((x - X0) / DX); if (k >= 0 && k < N_) { sy[k] += y; sc[k]++; } }
       }
     });
-    const yc = new Float64Array(N); let first = -1, last = -1;
-    for (let i = 0; i < N; i++) if (sc[i]) { yc[i] = sy[i] / sc[i]; if (first < 0) first = i; last = i; }
+    const yc = new Float64Array(N_); let first = -1, last = -1;
+    for (let i = 0; i < N_; i++) if (sc[i]) { yc[i] = sy[i] / sc[i]; if (first < 0) first = i; last = i; }
     for (let i = first + 1; i < last; i++) if (!sc[i]) { let j = i; while (!sc[j]) j++; const a = i - 1; for (let q = i; q < j; q++) yc[q] = yc[a] + (yc[j] - yc[a]) * (q - a) / (j - a); i = j; }
     const sl0 = (yc[first + 4] - yc[first]) / 4, sl1 = (yc[last] - yc[last - 4]) / 4;
     for (let i = first - 1; i >= 0; i--) yc[i] = yc[i + 1] - sl0;
-    for (let i = last + 1; i < N; i++) yc[i] = yc[i - 1] + sl1;
-    let hm = new Float64Array(N);
-    for (let i = 0; i < N; i++) hm[i] = t0(X0 + i * DX, yc[i]);
-    for (let pass = 0; pass < 3; pass++) { const o = new Float64Array(N); for (let i = 0; i < N; i++) { let s = 0, c = 0; for (let q = -8; q <= 8; q++) { const j = Math.max(0, Math.min(N - 1, i + q)); s += hm[j]; c++; } o[i] = s / c; } hm = o; }
-    function lin(arr, x) { let f = (x - X0) / DX; f = Math.max(0, Math.min(N - 1.001, f)); const i = f | 0, u = f - i; return arr[i] * (1 - u) + arr[i + 1] * u; }
-    const Yc = x => lin(yc, x), M = x => lin(hm, x);
+    for (let i = last + 1; i < N_; i++) yc[i] = yc[i - 1] + sl1;
+    let hm = new Float64Array(N_);
+    for (let i = 0; i < N_; i++) hm[i] = t0(X0 + i * DX, yc[i]);
+    for (let pass = 0; pass < 3; pass++) { const o = new Float64Array(N_); for (let i = 0; i < N_; i++) { let s = 0, c = 0; for (let q = -8; q <= 8; q++) { const j = Math.max(0, Math.min(N_ - 1, i + q)); s += hm[j]; c++; } o[i] = s / c; } hm = o; }
+    function lin(arr, x) { let f = (x - X0) / DX; f = Math.max(0, Math.min(N_ - 1.001, f)); const i = f | 0, u = f - i; return arr[i] * (1 - u) + arr[i + 1] * u; }
+    const Yc = x => lin(yc, x);
     function cosf(x) { const m = (Yc(x + 25) - Yc(x - 25)) / 50; return 1 / Math.sqrt(1 + m * m); }
-    function flatW(x) { return 42 + 90 * sstep((x + 1950) / 200) * (1 - sstep((x - 1050) / 200)); }
-    function T(x, y) { const d = Math.abs(y - Yc(x)) * cosf(x), t = sstep((d - flatW(x)) / 110); return M(x) * (1 - t) + t0(x, y) * t; }
-    return { t0, T, M, Yc };
+    // 原地面 N：SRTM 30 m 在路廊內已被路塹「平均」過，改以路廊兩側 170 m 外的高程內插還原台地面
+    const DN = 170;
+    function N(x, y) {
+      const D = DN / cosf(x), c = Yc(x), o = y - c, ao = Math.abs(o); if (ao >= D) return t0(x, y);
+      const a = t0(x, c - D), b = t0(x, c + D), l = a + (b - a) * (o + D) / (2 * D), w = sstep((ao / D - 0.7) / 0.3);
+      return l * (1 - w) + t0(x, y) * w;
+    }
+    // 國道縱斷面 M：林口台地段（約 39.9K–43K）為下挖路塹，路面至少低於兩側台地面 7 m（跨越橋與地面道路同高）
+    { let nc = new Float64Array(N_), o;
+      for (let i = 0; i < N_; i++) { const x = X0 + i * DX, D = DN / cosf(x); nc[i] = (t0(x, yc[i] - D) + t0(x, yc[i] + D)) / 2; }
+      for (let pass = 0; pass < 3; pass++) { o = new Float64Array(N_); for (let i = 0; i < N_; i++) { let s2 = 0; for (let q = -8; q <= 8; q++) s2 += nc[Math.max(0, Math.min(N_ - 1, i + q))]; o[i] = s2 / 17; } nc = o; }
+      for (let i = 0; i < N_; i++) { const x = X0 + i * DX, core = sstep((x + 2000) / 350) * (1 - sstep((x - 1000) / 350)); hm[i] -= Math.max(0, 7 * core - (nc[i] - hm[i])); }
+      o = new Float64Array(N_); for (let i = 0; i < N_; i++) { let s2 = 0; for (let q = -3; q <= 3; q++) s2 += hm[Math.max(0, Math.min(N_ - 1, i + q))]; o[i] = s2 / 7; } hm = o;
+    }
+    const M = x => lin(hm, x);
+    return { t0, T: N, N, M, Yc };
   }
 
   // ---------------- 幾何 ----------------
@@ -120,6 +133,17 @@
       setGeom(e, resample(src.p, src.k !== 'm', src.k === 'm' ? 15 : 5));
       edges.push(e);
     });
+    // 匝道端點銜接地面道路：出口車輛駛入地面道路後離開模型，入口車輛由地面道路進場
+    const nearPt = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
+    for (const key in (D.stubs || {})) {
+      const out = key in CFG.sinks, c = out ? CFG.sinks[key] : CFG.sources[key]; if (!c) continue;
+      const ramp = edges.find(e => out ? nearPt(e.X[e.np - 1], e.Y[e.np - 1], c) : nearPt(e.X[0], e.Y[0], c)); if (!ramp) continue;
+      const p = D.stubs[key].map(q => q.slice());
+      if (out) p[0] = [ramp.X[ramp.np - 1], ramp.Y[ramp.np - 1]]; else p[p.length - 1] = [ramp.X[0], ramp.Y[0]];
+      const e = { id: 'stub_' + key, way: 'stub', k: 's', a: out ? ramp.b : 'stubsrc:' + key, b: out ? 'stubend:' + key : ramp.a, layer: 0, br: 0, tu: 0, grp: '', dest: '', n: ramp.n, vlim: 50, lw: 3.0, stub: out ? 'out' : 'in', stubKey: key };
+      if (out) ramp.sigKey = CFG.signals[key] || null;
+      setGeom(e, resample(p, true, 5)); edges.push(e);
+    }
     function split(id, sAt, n1, n2) {
       const i = edges.findIndex(e => e.id === id); if (i < 0) return;
       const e = edges[i], k = idxAt(e, sAt) + 1, p1 = [], p2 = [];
@@ -174,6 +198,9 @@
     const near = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
     const sinks = {}, sources = {};
     edges.forEach(e => {
+      if (e.sigKey) e.sig = e.sigKey;
+      if (e.stub === 'out') { sinks[e.stubKey] = e; e.sink = e.stubKey; return; }
+      if (e.stub === 'in') { sources[e.stubKey] = e; e.source = e.stubKey; return; }
       const ex = e.X[e.np - 1], ey = e.Y[e.np - 1], sx = e.X[0], sy = e.Y[0];
       if (!e.outs.length) {
         for (const k in CFG.sinks) if (near(ex, ey, CFG.sinks[k])) { sinks[k] = e; e.sink = k; e.sig = CFG.signals[k] || null; }
@@ -190,7 +217,7 @@
     const SL = 0.075;
     edges.forEach(e => {
       if (e.k === 'm' || e.k === 'v' || !e.br) return;
-      const H = e.layer >= 2 ? 13 : 7;
+      const H = e.layer >= 2 ? 11 : 7.5;
       // 橋群起迄距離
       let up = 0, q = e; while (q.ins.length === 1 && q.ins[0].br && q.ins[0].k !== 'm') { q = q.ins[0]; up += q.len; }
       let down = 0; q = e; while (q.outs.length && q.outs.some(o => o.br)) { q = q.outs.find(o => o.br); down += q.len; }
@@ -223,12 +250,28 @@
       if (isFix(e)) return;
       for (let i = 0; i < e.np; i++) { if (fixed[e.a]) e.OFF[i] = Math.min(e.OFF[i], e.S[i] * 0.09); if (fixed[e.b]) e.OFF[i] = Math.min(e.OFF[i], (e.len - e.S[i]) * 0.09); }
     });
+    // 匝道縱斷面：主線端為國道路面高程、地面道路端為台地面高程，中間節點以鄰接路段長度加權求解
+    const nodeZ = {}, fixZ = {};
+    edges.forEach(e => { if (e.k === 'm') { fixZ[e.a] = terr.M(e.X[0]); fixZ[e.b] = terr.M(e.X[e.np - 1]); } });
+    edges.forEach(e => { if (e.k !== 's') return; const o = e.stub === 'out', n = o ? e.a : e.b, i = o ? 0 : e.np - 1; if (!(n in fixZ)) fixZ[n] = terr.N(e.X[i], e.Y[i]); });
+    const lk = edges.filter(e => e.k === 'l' || e.k === 'n');
+    lk.forEach(e => { if (!e.outs.length && !(e.b in fixZ)) fixZ[e.b] = terr.N(e.X[e.np - 1], e.Y[e.np - 1]); if (!e.ins.length && !(e.a in fixZ)) fixZ[e.a] = terr.N(e.X[0], e.Y[0]); });
+    lk.forEach(e => { nodeZ[e.a] = e.a in fixZ ? fixZ[e.a] : terr.M(e.X[0]); nodeZ[e.b] = e.b in fixZ ? fixZ[e.b] : terr.M(e.X[e.np - 1]); });
+    for (let it = 0; it < 300; it++) {
+      const sw = {}, sz = {};
+      lk.forEach(e => { const w = 1 / Math.max(20, e.len); sw[e.a] = (sw[e.a] || 0) + w; sz[e.a] = (sz[e.a] || 0) + w * nodeZ[e.b]; sw[e.b] = (sw[e.b] || 0) + w; sz[e.b] = (sz[e.b] || 0) + w * nodeZ[e.a]; });
+      for (const n in sw) if (!(n in fixZ)) nodeZ[n] = sz[n] / sw[n];
+    }
     edges.forEach(e => {
       for (let i = 0; i < e.np; i++) {
         const x = e.X[i], y = e.Y[i];
         if (e.k === 'm') e.Z[i] = terr.M(x);
-        else if (e.k === 'v') { const hi = e.layer >= 5 ? 6.5 * sstep(Math.min(e.S[i], e.len - e.S[i]) / 300) : 0; e.Z[i] = terr.M(x) + 15 + hi; e.OFF[i] = 15 + hi; }
-        else e.Z[i] = terr.T(x, y) + e.OFF[i];
+        else if (e.k === 'v') { // 高架：至少高於國道 17 m，且高於沿線平滑後的原地面 9 m（山坡段）
+          const hi = e.layer >= 5 ? 6.5 * sstep(Math.min(e.S[i], e.len - e.S[i]) / 300) : 0; let ns = 0; for (let q = -4; q <= 4; q++) ns += terr.N(x + q * 45, y); ns /= 9;
+          e.Z[i] = Math.max(terr.M(x) + 17, ns + 9) + hi; e.OFF[i] = e.Z[i] - terr.M(x);
+        }
+        else if (e.k === 's') e.Z[i] = terr.N(x, y) + e.OFF[i];
+        else e.Z[i] = nodeZ[e.a] + (nodeZ[e.b] - nodeZ[e.a]) * sstep(e.S[i] / e.len) * 0.5 + (nodeZ[e.b] - nodeZ[e.a]) * (e.S[i] / e.len) * 0.5 + e.OFF[i];
       }
       // 縱坡（每 60 m 平滑）
       e.GR = new Float32Array(e.np);
@@ -373,7 +416,8 @@
     let dist = e.len - v.s, pi = v.pi, cur = e, l = lane, depth = 0;
     while (depth < 4) {
       const next = v.path.e[pi + 1];
-      if (!next) { if (cur.sig && !this.green(cur.sig)) { out[0] = dist - 1; out[1] = 0; return; } const vb = this.bnd && this.bnd[cur.sink]; if (vb) { out[0] = dist + 25; out[1] = vb; return; } out[0] = 1e4; out[1] = 0; return; }
+      if (cur.sig && !this.green(cur.sig)) { out[0] = dist - 1; out[1] = 0; return; }
+      if (!next) { const vb = this.bnd && this.bnd[cur.sink]; if (vb) { out[0] = dist + 25; out[1] = vb; return; } out[0] = 1e4; out[1] = 0; return; }
       const tr = cur.tr[next.id];
       if (!tr || l < tr.lo || l > tr.hi || tr.yield) { out[0] = dist - 1.5; out[1] = 0; return; }
       let l2 = l - tr.shift; if (l2 < 0) l2 = 0; if (l2 >= next.n) l2 = next.n - 1;
@@ -515,7 +559,8 @@
         const arr = e.L[l];
         while (arr.length && arr[0].s >= e.len) {
           const v = arr[0], next = v.path.e[v.pi + 1];
-          if (!next) { if (e.sig && !this.green(e.sig)) { v.s = e.len - 0.3; v.v = 0; break; } arr.shift(); this.finish(v); continue; }
+          if (e.sig && !this.green(e.sig)) { v.s = e.len - 0.3; v.v = 0; break; }
+          if (!next) { arr.shift(); this.finish(v); continue; }
           const tr = e.tr[next.id];
           let okLane = tr && l >= tr.lo && l <= tr.hi && !tr.yield;
           if (!okLane && e.k === 'm' && tr && !tr.yield && v.stuck > 6) { // 主線上來不及變換車道：錯過出口，續行主線
@@ -537,6 +582,7 @@
           arr.shift();
           const dLat = v.lat - laneOff(e, l);
           v.s = ns; v.e = next; v.lane = l2; v.pi++; v.need = v.path.need[v.pi]; v.lat = laneOff(next, l2) + dLat; ta.push(v);
+          if (next.stub === 'out') this.count(v); // 行駛時間計到通過匝道末端停止線
           if (next.det.length) for (let q = 0; q < next.det.length; q++) { const d = next.det[q]; if (v.s >= d.s) this.hit(v, d); }
         }
       }
@@ -549,8 +595,9 @@
     for (const pk in this.pairDist) { const ab = pk.split('>'); if (ab[1] === d.name && v.td[ab[0]] !== undefined) { const P = this.bin('v:' + pk, b); P.n++; P.st += this.t - v.td[ab[0]]; P.sd += this.pairDist[pk]; } }
     v.td[d.name] = this.t;
   };
-  Sim.prototype.finish = function (v) {
-    v.dead = true; this.done++;
+  Sim.prototype.finish = function (v) { v.dead = true; this.done++; this.count(v); };
+  Sim.prototype.count = function (v) {
+    if (v.cnt) return; v.cnt = true;
     const key = v.src + '>' + v.dst, b = Math.floor(this.t / 300), B = this.bin('m:' + key, b);
     B.n++; B.st += this.t - v.tGen; B.sd += v.path.len;
   };
