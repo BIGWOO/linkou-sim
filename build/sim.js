@@ -97,19 +97,20 @@
     return out;
   }
   // 車道橫向位置：主線以內側 4 車道為基準靠左對齊，增減的車道都出現在外側（右側）
-  const laneOff = (e, l) => (l - ((e.nb || e.n) - 1) / 2) * e.lw;
+  const laneOff = (e, l) => e.l0 !== undefined ? e.l0 + l * e.lw : (l - ((e.nb || e.n) - 1) / 2) * e.lw;
 
   // ---------------- 情境設定 ----------------
   const CFG = {
     lanes: {
-      both: { '25439936': 2, '182679857': 2, '790658669': 1, '1534580804': 1, '1534580805': 1, '1123164658_0': 1, '1123164658_1': 2, '394517636': 2, '27516896': 1, '25439941': 1, '182979602': 1, '1534580808': 1, '1534580809': 1, '1534580803': 1 },
-      after: { '182679857': 3, '1534580801_0': 1, '1534580801_1': 3, '24000913': 1, '1534580806': 1, '1534580807': 1, '1310980990': 1, '1123164658_0': 1 }
+      both: { '25439936': 2, '182679857': 1, '790658669': 3, '1534580804': 1, '1534580805': 1, '1123164658_0': 1, '1123164658_1': 2, '394517636': 2, '27516896': 1, '25439941': 1, '182979602': 1, '1534580808': 1, '1534580809': 1, '1534580803': 1 },
+      after: { '182679857': 2, '1534580801_0': 1, '1534580801_1': 3, '24000913': 1, '1534580806': 1, '1534580807': 1, '1310980990': 1, '1123164658_0': 1 }
     },
     removeAfter: ['74281316_1', '1534580803_0', '1534580805_0'],
     // 端點（以座標比對 OSM 節點）
-    sinks: { A_S: [263, 103], A_S_T: [264, 74], B_S: [-914, 86], B_N: [-1106, -102], A_N: [70, -82], FLY1: [313, -261], FLY2: [289, -252] },
+    stubN: { A_S_T: 1, A_S_L: 3 },
+    sinks: { A_S: [268, 138], A_S_T: [264, 74], A_S_L: [264, 74], B_S: [-914, 86], B_N: [-1106, -102], A_N: [70, -82], FLY1: [313, -261], FLY2: [289, -252] },
     sources: { A_S_on: [136, 64], B_S_on: [-1090, 80], B_N_on: [-979, -98], A_N_on: [278, -75], A_N_on2: [281, 267] },
-    signals: { A_S: 'A_S', A_S_T: 'A_S', B_S: 'B_S', B_N: 'B_N', A_N: 'A_N' }
+    signals: { A_S: 'A_SR', A_S_T: 'A_S', A_S_L: 'A_S', B_S: 'B_S', B_N: 'B_N', A_N: 'A_N' }
   };
   const NEW_GROUP = { // 改善工程分項（供著色與說明）
     '1122274257': 'so', '1122274253': 'so', '1122274254': 'so', '1122274255': 'so', '1124093682': 'so', '1122274256': 'so',
@@ -118,7 +119,8 @@
     '1534580810': 'wn', '1534580811': 'wn', '1534580812': 'wn'
   };
 
-  function buildNet(D, scen, terr) {
+  function buildNet(D, scen, terr, opt) {
+    const surfOn = !(opt && opt.surf === false) && !!G.LK.Surf; // 地面道路車流：匝道端點改與地面路網銜接
     const after = scen === 'after';
     let edges = [];
     D.edges.forEach(src => {
@@ -134,6 +136,9 @@
       setGeom(e, resample(src.p, src.k !== 'm', src.k === 'm' ? 15 : 5));
       edges.push(e);
     });
+    // 林口A南出匝道（Google 街景 2025/11）：起點 2 車道，至路口共 5 車道——最右 1 車道為雙白線分隔的右轉專用道（另一路段），
+    // 其左 4 車道為左轉 3、左轉／直行共用 1。改善後依計畫另增 1 條右轉車道
+    { const r = split('790658669_0', Math.max(20, byLen('790658669_0') - 60), 3, 4); if (r) r[0].shiftNext = -1; }
     // 匝道端點銜接地面道路：出口車輛駛入地面道路後離開模型，入口車輛由地面道路進場
     const nearPt = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
     for (const key in (D.stubs || {})) {
@@ -141,10 +146,17 @@
       const ramp = edges.find(e => out ? nearPt(e.X[e.np - 1], e.Y[e.np - 1], c) : nearPt(e.X[0], e.Y[0], c)); if (!ramp) continue;
       const p = D.stubs[key].map(q => q.slice());
       if (out) p[0] = [ramp.X[ramp.np - 1], ramp.Y[ramp.np - 1]]; else p[p.length - 1] = [ramp.X[0], ramp.Y[0]];
-      const e = { id: 'stub_' + key, way: 'stub', k: 's', a: out ? ramp.b : 'stubsrc:' + key, b: out ? 'stubend:' + key : ramp.a, layer: 0, br: 0, tu: 0, grp: '', dest: '', n: ramp.n, vlim: 50, lw: 3.0, stub: out ? 'out' : 'in', stubKey: key };
+      const e = { id: 'stub_' + key, way: 'stub', k: 's', a: out ? ramp.b : 'stubsrc:' + key, b: out ? 'stubend:' + key : ramp.a, layer: 0, br: 0, tu: 0, grp: '', dest: '', n: CFG.stubN[key] || ramp.n, vlim: 50, lw: 3.0, stub: out ? 'out' : 'in', stubKey: key };
       if (out) ramp.sigKey = CFG.signals[key] || null;
-      setGeom(e, resample(p, true, 5)); edges.push(e);
+      let rp = resample(p, true, 5);
+      if (surfOn) { // 只保留緊鄰匝道端點的 25 m（路口內的轉向軌跡），其餘交給地面路網
+        if (!out) rp.reverse();
+        let L = 0, k = 1; for (; k < rp.length - 1; k++) { L += Math.hypot(rp[k][0] - rp[k - 1][0], rp[k][1] - rp[k - 1][1]); if (L >= 25) break; }
+        rp = rp.slice(0, k + 1); if (!out) rp.reverse();
+      }
+      setGeom(e, rp); edges.push(e);
     }
+    function byLen(id) { const e = edges.find(q => q.id === id); return e ? e.len : 0; }
     function split(id, sAt, n1, n2) {
       const i = edges.findIndex(e => e.id === id); if (i < 0) return;
       const e = edges[i], k = idxAt(e, sAt) + 1, p1 = [], p2 = [];
@@ -183,7 +195,7 @@
         return;
       }
       const o = outs[0], ins = nodeIn[e.b];
-      if (ins.length === 1) { e.tr[o.id] = { o, lo: 0, hi: Math.min(e.n, o.n) - 1, shift: 0 }; return; }
+      if (ins.length === 1) { e.tr[o.id] = { o, lo: 0, hi: Math.min(e.n, o.n) - 1, shift: e.shiftNext || 0 }; return; }
       const f = ins.find(q => q !== e), right = sideOf(e, f, true) > 0;
       if (e.n + f.n <= o.n) { e.tr[o.id] = right ? { o, lo: 0, hi: e.n - 1, shift: -(o.n - e.n) } : { o, lo: 0, hi: e.n - 1, shift: 0 }; return; }
       const rank = q => (q.k === 'm' ? 100 : 0) + q.n * 10 + (q.k === 'n' ? -1 : 0);
@@ -195,6 +207,7 @@
         e.tr[o.id] = { o, lo: adj, hi: adj, shift: 0, yield: true };
       }
     });
+    { const e = edges.find(q => q.id === '790658669_0b'), L = e && e.tr.stub_A_S_L, T = e && e.tr.stub_A_S_T; if (L && T) { L.lo = 0; L.hi = 3; L.shift = 0; T.lo = 3; T.hi = 3; T.shift = 3; } } // 最右車道左轉／直行共用
     // 端點比對
     const near = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
     const sinks = {}, sources = {};
@@ -299,18 +312,21 @@
       return { e: edgesArr, need, len };
     }
     const net = { scen, edges, byId, sinks, sources, route, needAt, mkPath, terr, tunnels };
+    if (surfOn) net.surf = new G.LK.Surf(D, net);
     return net;
   }
 
   // ---------------- 模擬 ----------------
-  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, cycle: 150, gc: { A_S: 0.55, B_S: 0.45, B_N: 0.5, A_N: 0.65 }, bound: true, seed: 20260908 };
+  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, bg: 0.8, spill: false, cycle: 150, gc: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.5, A_N: 0.65 }, gcAfter: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.5, A_N: 0.65 }, bound: true, seed: 20260908 };
 
   function Sim(net, D, par, t0) {
     this.net = net; this.D = D; this.par = Object.assign({}, DEF, par || {}); this.par.gc = Object.assign({}, DEF.gc, (par && par.gc) || {});
+    if (net.scen === 'after') this.par.gc = Object.assign({}, DEF.gcAfter, (par && par.gcAfter) || {}); // 改善後的號誌時制另行設定，不沿用現況校估值
     this.t = t0 || 0; this.veh = []; this.rand = rng(this.par.seed); this.nid = 1;
     this.srcQ = {}; this.srcAcc = {}; this.paths = {};
     for (const k in net.sources) { this.srcQ[k] = []; this.srcAcc[k] = this.rand(); }
     this.setupDetectors(); this.resetStats();
+    if (net.surf) net.surf.reset(this);
   }
   Sim.prototype.resetStats = function () {
     this.bins = {}; // key -> {n, sumT, sumD} per 5 分鐘
@@ -362,8 +378,8 @@
   };
   Sim.prototype.sinkFor = function (dst) {
     const after = this.net.scen === 'after';
-    if (dst === 'A_S_R' || dst === 'A_S_T') return 'A_S';
-    if (dst === 'A_S_L') return after ? (this.rand() < 0.5 ? 'FLY1' : 'FLY2') : 'A_S';
+    if (dst === 'A_S_R') return 'A_S';
+    if (dst === 'A_S_L') return after ? (this.rand() < 0.5 ? 'FLY1' : 'FLY2') : 'A_S_L';
     return dst;
   };
   Sim.prototype.pathFor = function (src, sink) {
@@ -382,7 +398,7 @@
         let r = this.rand(), dst = s.to[0][0]; for (let i = 0; i < s.to.length; i++) { r -= s.to[i][1]; if (r <= 0) { dst = s.to[i][0]; break; } }
         const m = s.mix, tot = m[0] + m[1] + m[2] + m[3] + m[4] || 1; let c = 0, rr = this.rand() * tot; for (; c < 4; c++) { rr -= m[c]; if (rr <= 0) break; }
         if (e.k === 'v' && c > 2) c = 0;
-        if (Q.length < 4000) Q.push({ dst, cls: c, t: this.t });
+        if (Q.length < 4000) { const it = { dst, cls: c, t: this.t }; if (!(e.stub === 'in' && this.net.surf && this.net.surf.toRamp(src, it))) Q.push(it); } // 入口匝道車輛先行駛地面道路抵達匝道口
       }
       // 嘗試放入路網
       let tries = e.n;
@@ -409,7 +425,8 @@
     const ss = 2 + Math.max(0, v * T + v * dv / (2 * Math.sqrt(a * b)));
     return a * (free - (ss / gap) * (ss / gap));
   }
-  Sim.prototype.green = function (key) { const p = this.par, off = { A_S: 0, B_S: 40, B_N: 75, A_N: 110 }[key] || 0; return ((this.t + off) % p.cycle) < p.gc[key] * p.cycle; };
+  const SIGOFF = { A_S: 0, B_S: 40, B_N: 75, A_N: 110 };
+  Sim.prototype.green = function (key) { const p = this.par, off = SIGOFF[key] || 0; return ((this.t + off) % p.cycle) < p.gc[key] * p.cycle; };
   // 在 lane 陣列（依 s 遞減）找到插入位置：回傳第一個 s 小於給定值的索引
   function findIdx(arr, s) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].s > s) lo = m + 1; else hi = m; } return lo; }
   Sim.prototype.leaderAhead = function (v, e, lane, out) {
@@ -418,7 +435,7 @@
     while (depth < 4) {
       const next = v.path.e[pi + 1];
       if (cur.sig && !this.green(cur.sig)) { out[0] = dist - 1; out[1] = 0; return; }
-      if (!next) { const vb = this.bnd && this.bnd[cur.sink]; if (vb) { out[0] = dist + 25; out[1] = vb; return; } out[0] = 1e4; out[1] = 0; return; }
+      if (!next) { if (cur.stub === 'out' && this.net.surf) { this.net.surf.entryGap(cur.stubKey, out); out[0] += dist; return; } const vb = this.bnd && this.bnd[cur.sink]; if (vb) { out[0] = dist + 25; out[1] = vb; return; } out[0] = 1e4; out[1] = 0; return; }
       const tr = cur.tr[next.id];
       if (!tr || l < tr.lo || l > tr.hi || tr.yield) { out[0] = dist - 1.5; out[1] = 0; return; }
       let l2 = l - tr.shift; if (l2 < 0) l2 = 0; if (l2 >= next.n) l2 = next.n - 1;
@@ -444,6 +461,7 @@
     const net = this.net, tmp = [0, 0], P1 = [0, 0, 0, 0, 0, 0], P2 = [0, 0, 0, 0, 0, 0];
     this.t += dt; const t = this.t;
     this.spawn(dt);
+    if (net.surf) net.surf.step(dt, t);
     const edges = net.edges;
     // 1) 加速度
     for (let ei = 0; ei < edges.length; ei++) {
@@ -561,7 +579,10 @@
         while (arr.length && arr[0].s >= e.len) {
           const v = arr[0], next = v.path.e[v.pi + 1];
           if (e.sig && !this.green(e.sig)) { v.s = e.len - 0.3; v.v = 0; break; }
-          if (!next) { arr.shift(); this.finish(v); continue; }
+          if (!next) {
+            if (e.stub === 'out' && net.surf && !net.surf.fromRamp(v, e)) { v.s = e.len - 0.3; v.v = 0; break; } // 地面道路回堵：停等於匝道端
+            arr.shift(); this.finish(v); continue;
+          }
           const tr = e.tr[next.id];
           let okLane = tr && l >= tr.lo && l <= tr.hi && !tr.yield;
           if (!okLane && e.k === 'm' && tr && !tr.yield && v.stuck > 6) { // 主線上來不及變換車道：錯過出口，續行主線
@@ -609,5 +630,5 @@
     for (const k in this.srcQ) out.srcQ[k] = this.srcQ[k].length;
     return out;
   };
-  G.LK = { LW, CLS, CFG, DEF, NEW_GROUP, Terrain, buildNet, Sim, posAt, laneOff, idxAt, resample, sstep };
+  G.LK = { LW, CLS, CFG, DEF, NEW_GROUP, SIGOFF, Terrain, buildNet, Sim, posAt, laneOff, idxAt, resample, sstep, setGeom, idm, findIdx, rng };
 })(typeof window !== 'undefined' ? window : globalThis);
