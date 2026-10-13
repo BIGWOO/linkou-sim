@@ -170,6 +170,19 @@ try:
             x,y=xy(e)
             if -4300<x<4000 and -1800<y<1400:rail['st'].append(dict(n=t.get('name',''),ref=t.get('ref',''),x=r1(x),y=r1(y)))
 except Exception as ex:print('no rail data',ex)
+# 多邊形關聯建物（OSM relation，例如長庚醫學大樓）
+try:
+    for e in rd['elements']:
+        t=e.get('tags',{})
+        if e['type']=='relation' and t.get('building'):
+            for m in e.get('members',[]):
+                g=m.get('geometry')
+                if m.get('role')=='outer' and g and len(g)>=4 and g[0]==g[-1]:
+                    lv=t.get('building:levels','')
+                    try:lv=float(lv)
+                    except:lv=0
+                    bld.append(dict(t=t['building'],n=t.get('name',''),lv=lv,h=0,p=[[r1(x),r1(y)] for x,y in [xy(q) for q in g[:-1]]]))
+except Exception as ex:print('relation buildings skipped',ex)
 print('rail tracks',len(rail['tracks']),'stations',[s['ref'] for s in rail['st']])
 el=json.load(open(W+'/data/elev.json'))
 el['h']=[round(v) for v in el['h']]

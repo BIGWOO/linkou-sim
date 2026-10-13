@@ -96,7 +96,8 @@
     out[2] = e.Z[i] + (e.Z[i + 1] - e.Z[i]) * u; out[3] = hx; out[4] = hy; out[5] = (e.Z[i + 1] - e.Z[i]) / d;
     return out;
   }
-  const laneOff = (e, l) => (l - (e.n - 1) / 2) * e.lw;
+  // 車道橫向位置：主線以內側 4 車道為基準靠左對齊，增減的車道都出現在外側（右側）
+  const laneOff = (e, l) => (l - ((e.nb || e.n) - 1) / 2) * e.lw;
 
   // ---------------- 情境設定 ----------------
   const CFG = {
@@ -124,7 +125,7 @@
       if (src.k === 'n' && !after) return;
       if (after && CFG.removeAfter.indexOf(src.id) >= 0) return;
       const way = src.id.split('_')[0];
-      const e = { id: src.id, way, k: src.k, a: src.a, b: src.b, layer: src.ly, br: src.br, tu: src.tu, grp: NEW_GROUP[way] || '', dest: src.ds };
+      const e = { id: src.id, way, k: src.k, a: src.a, b: src.b, layer: src.ly, br: src.br, tu: src.tu, grp: NEW_GROUP[way] || '', dest: src.ds, nb: src.k === 'm' ? 4 : 0 };
       const pick = t => t && (t[src.id] !== undefined ? t[src.id] : t[way]);
       let n = pick(CFG.lanes.both); const na = after ? pick(CFG.lanes.after) : undefined; if (na !== undefined) n = na;
       e.n = n || src.ln || (src.k === 'm' ? 4 : src.k === 'v' ? 3 : 1);
