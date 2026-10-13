@@ -3,6 +3,9 @@ W=sys.argv[1];B=W+'/build/'
 s=open(B+'shell.html').read()
 import os
 s=s.replace('/*__ORTHO__*/',open(B+'ortho.json').read() if os.path.exists(B+'ortho.json') else 'null')
+import base64,json
+tx={k:base64.b64encode(open(W+'/data/tex/'+k+'.jpg','rb').read()).decode() for k in sorted(f[:-4] for f in os.listdir(W+'/data/tex') if f.endswith('.jpg'))}
+s=s.replace('/*__TEXS__*/',json.dumps(tx))
 for k,f in (('/*__DATA__*/','data.json'),('/*__SIM__*/','sim.js'),('/*__VIEW__*/','view.js'),('/*__APP__*/','app.js')):
     assert k in s; s=s.replace(k,open(B+f).read().replace('</script','<\\/script'))
 open(W+'/linkou-interchange.html','w').write(s)

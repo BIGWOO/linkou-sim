@@ -33,6 +33,7 @@
     street: canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#6a6e73'; g.fillRect(0, 0, w, h); noise(g, w, h, 1500, 0.08, false); noise(g, w, h, 1500, 0.12, true); g.fillStyle = '#d9d9d2'; g.fillRect(2, 0, 3, h); g.fillRect(w - 5, 0, 3, h); g.fillStyle = '#e3c341'; g.fillRect(w / 2 - 1.5, 0, 3, h * 0.5); }),
     concrete: canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#b9b7b0'; g.fillRect(0, 0, w, h); noise(g, w, h, 2500, 0.08, true); g.fillStyle = 'rgba(60,60,60,0.25)'; g.fillRect(0, 0, w, 2); })
   };
+  function photoTex(k) { const TX = window.TEXS || {}; if (!TX[k]) return null; const t = new T3.Texture(); t.wrapS = t.wrapT = T3.RepeatWrapping; t.anisotropy = 8; const im = new Image(); im.onload = () => { t.image = im; t.needsUpdate = true; }; im.src = 'data:image/jpeg;base64,' + TX[k]; return t; }
   // 建物立面：一張貼圖代表 4 開間 × 4 層樓（12.8 m × 13.2 m）
   function facade(kind) {
     return canvasTex(256, 256, (g, w, h) => {
@@ -90,6 +91,21 @@
     for (let i = 1; i < lev.length; i++) for (let k = 0; k < 4; k++) { const p = C[k], q = C[(k + 1) % 4]; quad(a, pt(lev[i - 1], p[0], p[1]), pt(lev[i - 1], q[0], q[1]), pt(lev[i], q[0], q[1]), pt(lev[i], p[0], p[1])); }
     const l = lev[lev.length - 1]; quad(a, pt(l, 1, 1), pt(l, 1, -1), pt(l, -1, -1), pt(l, -1, 1));
   }
+  function beam(a, x1, y1, x2, y2, zt, dep, th) {
+    const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, nx = -dy / L * th / 2, ny = dx / L * th / 2, p = (q, z) => [q[0], z - BASE, -q[1]];
+    const A = [x1 + nx, y1 + ny], B = [x2 + nx, y2 + ny], C = [x2 - nx, y2 - ny], E2 = [x1 - nx, y1 - ny];
+    for (const uv of [[A, B], [B, C], [C, E2], [E2, A]]) quad(a, p(uv[0], zt - dep), p(uv[1], zt - dep), p(uv[1], zt), p(uv[0], zt));
+    quad(a, p(A, zt - dep), p(B, zt - dep), p(C, zt - dep), p(E2, zt - dep));
+  }
+  // 橋墩配置：墩位不得落在任何路面上。先沿橋軸前後找空地立單柱；找不到就在兩側空地立柱、以橫梁跨越（門型墩）
+  function support(a, x, y, z, hx, hy, deckHalf, big) {
+    const top = z - 1.5, ok = (px, py) => { Hq(px, py); return edgeD > 2.2; };
+    for (const ds of [0, 7, -7, 13, -13]) { const px = x + hx * ds, py = y + hy * ds; if (ok(px, py)) { const g = Hq(px, py); if (top - g > 2.5) pier(a, px, py, g, top, hx, hy, deckHalf * (big ? 0.72 : 0.6), big ? 1.5 : 0.9, big ? 2.6 : 1.6); return; } }
+    const nx = hy, ny = -hx; let L = 0, R = 0; for (let k = deckHalf + 1; k <= 60; k += 2) { if (!R && ok(x + nx * k, y + ny * k)) R = k; if (!L && ok(x - nx * k, y - ny * k)) L = k; if (L && R) break; }
+    if (!L && !R) return; const cols = []; if (R) cols.push([x + nx * R, y + ny * R]); if (L) cols.push([x - nx * L, y - ny * L]);
+    cols.forEach(c => { const g = Hq(c[0], c[1]); if (top - 2 - g > 2) pier(a, c[0], c[1], g, top - 2.0, hx, hy, big ? 2.4 : 1.6, big ? 1.3 : 0.9, big ? 2.4 : 1.6); });
+    const e1 = cols[0], e2 = cols[1] || [x, y]; beam(a, e1[0], e1[1], e2[0], e2[1], top, 2.0, big ? 2.6 : 1.8);
+  }
   function toMesh(a, mat) {
     const g = new T3.BufferGeometry(); g.setAttribute('position', new T3.Float32BufferAttribute(a.p, 3)); g.setAttribute('normal', new T3.Float32BufferAttribute(a.n, 3));
     if (a.u.length) g.setAttribute('uv', new T3.Float32BufferAttribute(a.u, 2)); if (a.c.length) g.setAttribute('color', new T3.Float32BufferAttribute(a.c, 3));
@@ -131,12 +147,12 @@
   // gh：原地面（台地面）高程，地面道路與建物貼此面；Hq：加上國道路塹與匝道路堤後的完成面
   const gh = (x, y) => terr.N(x, y); V.gh = gh;
   const streetS = []; // 地面道路取樣點 [x, y, z, w]
-  let grid = null, clearD = 0;
+  let grid = null, clearD = 0, edgeD = 0; // edgeD：到最近路面邊緣的距離（負值表示在路面上）
   function buildHash(net) {
     grid = new Map();
     const put = (x, y, z, w, st) => { const k = (Math.floor(x / 32) + 500) * 4096 + Math.floor(y / 32) + 500; let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(x, y, z, w, st); };
     net.edges.forEach(e => {
-      if (e.k === 'v' || e.k === 's') return; const main = e.k === 'm', w = e.n * e.lw / 2 + (main ? 3.0 : 1.5) + 5.5; // 邊坡起點須離路面邊緣至少一格網格，否則內插後會壓到路肩
+      if (e.k === 'v' || e.k === 's') return; const main = e.k === 'm', w = Math.max((e.nb || e.n) / 2, e.n - (e.nb || e.n) / 2) * e.lw + (main ? 3.0 : 1.5) + 5.5; // 邊坡起點須離路面邊緣至少一格網格，否則內插後會壓到路肩
       // 橋梁下方維持原地形（橋台附近離地不到 1.5 m 處仍貼合）；其餘路段（含抬高的路堤）地形一律貼合路面
       for (let i = 1; i < e.np; i++) { if (e.br && e.OFF[i] > 1.5 && e.OFF[i - 1] > 1.5) continue; const d = e.S[i] - e.S[i - 1], n = Math.max(1, Math.ceil(d / 5)); for (let q = 0; q < n; q++) { const t = q / n; put(e.X[i - 1] + (e.X[i] - e.X[i - 1]) * t, e.Y[i - 1] + (e.Y[i] - e.Y[i - 1]) * t, e.Z[i - 1] + (e.Z[i] - e.Z[i - 1]) * t, w, 0); } }
     });
@@ -144,16 +160,16 @@
   }
   function Hq(x, y) {
     const n = terr.N(x, y); if (!grid) return n;
-    const cx = Math.floor(x / 32), cy = Math.floor(y / 32); let up = 1e9, dn = -1e9, zin = 1e9, zst = 1e9, cl = 1e9;
+    const cx = Math.floor(x / 32), cy = Math.floor(y / 32); let up = 1e9, dn = -1e9, zin = 1e9, zst = 1e9, cl = 1e9, el = 1e9;
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
       const arr = grid.get((cx + a + 500) * 4096 + cy + b + 500); if (!arr) continue;
       for (let i = 0; i < arr.length; i += 5) {
-        const d = Math.hypot(x - arr[i], y - arr[i + 1]) - arr[i + 3], z = arr[i + 2]; if (d < cl) cl = d;
+        const d = Math.hypot(x - arr[i], y - arr[i + 1]) - arr[i + 3], z = arr[i + 2]; if (d < cl) cl = d; { const ed = d + (arr[i + 4] ? 1.5 : 5.5); if (ed < el) el = ed; }
         if (d <= 0) { if (arr[i + 4]) { if (z < zst) zst = z; } else if (z < zin) zin = z; continue; }
         const u = z + d / 1.5, w = z - d / 1.5; if (u < up) up = u; if (w > dn) dn = w;
       }
     }
-    clearD = cl;
+    clearD = cl; edgeD = el;
     if (zin < 1e8) return zin; if (zst < 1e8) return zst;
     return Math.max(Math.min(n, up), dn);
   }
@@ -232,6 +248,9 @@
     if (!D.rail || !D.rail.tracks.length) return;
     const vs = []; net.edges.forEach(e => { if (e.k === 'v') for (let i = 0; i < e.np; i += 2) vs.push(e.X[i], e.Y[i], e.Z[i]); });
     const deck = Acc(), conc = Acc(), glass = Acc(), roof = Acc();
+    // 車站材質貼圖：依現場照片以影像生成模型產生的可拼接貼圖（data/tex），缺檔時退回單色
+    const TX = window.TEXS || {}, imgTex = k => { if (!TX[k]) return null; const t = new T3.Texture(); t.wrapS = t.wrapT = T3.RepeatWrapping; t.anisotropy = 8; const im = new Image(); im.onload = () => { t.image = im; t.needsUpdate = true; }; im.src = 'data:image/jpeg;base64,' + TX[k]; return t; };
+    const sRoof = Acc(), sWall = Acc(), sConc = Acc(), sEnt = Acc(), W1 = [1, 1, 1];
     const railTex = canvasTex(128, 64, (g, w, h) => { g.fillStyle = '#b4b2ab'; g.fillRect(0, 0, w, h); noise(g, w, h, 500, 0.1, true); g.fillStyle = '#8a8880'; g.fillRect(w * 0.5 - 30, 0, 60, h); g.fillStyle = '#4a4744'; g.fillRect(w * 0.5 - 20, 0, 3, h); g.fillRect(w * 0.5 + 17, 0, 3, h); g.fillStyle = '#77756e'; for (let y = 0; y < h; y += 8) g.fillRect(w * 0.5 - 26, y, 52, 2); });
     const tracks = D.rail.tracks.map(t => {
       const pts = LK.resample(t.p, true, 8), n = pts.length, z = new Float64Array(n);
@@ -256,8 +275,7 @@
     if (A0) for (let s0 = 15; s0 < A0.len; s0 += 30) {
       let i = 0; while (i < A0.S.length - 2 && A0.S[i + 1] < s0) i++; const p = A0.rp[i]; let cx = p[0], cy = p[1], cap = 2.6;
       if (B0) { let bd = 1e9, bq = null; for (const q of B0.rp) { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < bd) { bd = d; bq = q; } } if (bd < 14) { cx = (p[0] + bq[0]) / 2; cy = (p[1] + bq[1]) / 2; cap = bd / 2 + 2.6; } }
-      if (Math.abs(cy - terr.Yc(cx)) < 20 && Math.abs(Math.abs(cy - terr.Yc(cx)) - 1) > 3.5) continue; // 不落在國道車道上
-      const g = Hq(cx, cy); if (p[2] - g > 4) pier(conc, cx, cy, g, p[2] - 1.9, p[3], p[4], cap, 1.1, 1.8);
+      if (p[2] - Hq(cx, cy) > 4) support(conc, cx, cy, p[2] - 0.4, p[3], p[4], cap, false);
     }
     // 車站：月台層雨庇與玻璃帷幕（沿軌道前後各 70 m）
     RAIL.stops = [];
@@ -268,11 +286,30 @@
       for (let i = Math.max(1, bi - 9); i <= Math.min(t.rp.length - 1, bi + 9); i++) {
         const a = t.rp[i - 1], b = t.rp[i], o1 = side > 0 ? -7 : -13, o2 = side > 0 ? 13 : 7;
         const P = (p, o, h) => [p[0] + p[4] * o, p[2] - BASE + h, -(p[1] - p[3] * o)];
-        quad(roof, P(a, o1, 7.6), P(b, o1, 7.6), P(b, (o1 + o2) / 2, 9.4), P(a, (o1 + o2) / 2, 9.4), [0.9, 0.91, 0.92]); quad(roof, P(a, (o1 + o2) / 2, 9.4), P(b, (o1 + o2) / 2, 9.4), P(b, o2, 7.6), P(a, o2, 7.6), [0.86, 0.87, 0.89]);
-        quad(glass, P(a, o1, -1.5), P(b, o1, -1.5), P(b, o1, 7.6), P(a, o1, 7.6), [0.45, 0.6, 0.68]); quad(glass, P(b, o2, -1.5), P(a, o2, -1.5), P(a, o2, 7.6), P(b, o2, 7.6), [0.45, 0.6, 0.68]);
+        { const u0 = t.S[i - 1] / 8, u1 = t.S[i] / 8; quad(sRoof, P(a, o1, 6.9), P(b, o1, 6.9), P(b, (o1 + o2) / 2, 7.5), P(a, (o1 + o2) / 2, 7.5), W1, [u0, u1, 0, 1.25]); quad(sRoof, P(a, (o1 + o2) / 2, 7.5), P(b, (o1 + o2) / 2, 7.5), P(b, o2, 6.9), P(a, o2, 6.9), W1, [u0, u1, 1.25, 2.5]); } quad(roof, P(a, (o1 + o2) / 2 - 1.2, 7.55), P(b, (o1 + o2) / 2 - 1.2, 7.55), P(b, (o1 + o2) / 2 + 1.2, 7.55), P(a, (o1 + o2) / 2 + 1.2, 7.55), [0.78, 0.8, 0.82]); // 深灰金屬屋面與中央採光帶
+        { const u0 = t.S[i - 1] / 9, u1 = t.S[i] / 9; quad(sWall, P(a, o1, -1.5), P(b, o1, -1.5), P(b, o1, 6.9), P(a, o1, 6.9), W1, [u0, u1, 0, 0.93]); quad(sWall, P(b, o2, -1.5), P(a, o2, -1.5), P(a, o2, 6.9), P(b, o2, 6.9), W1, [u1, u0, 0, 0.93]); } // 月台層金屬網牆
         quad(conc, P(a, o1, -1.5), P(a, o2, -1.5), P(b, o2, -1.5), P(b, o1, -1.5)); quad(conc, P(a, o1, 0.9), P(b, o1, 0.9), P(b, o2, 0.9), P(a, o2, 0.9));
       }
     });
+    const add0 = a => { if (!a.p.length) return; const m = toMesh(a, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide })); m.castShadow = m.receiveShadow = true; scene.add(m); };
+    // 站體（OSM 輪廓）：穿堂層架高跨越道路，地面層只留柱與出入口；柱位避開路面
+    const body = Acc();
+    stPolys.forEach(pl => {
+      let ar = 0; for (let i = 0; i < pl.length; i++) { const q = pl[(i + 1) % pl.length]; ar += pl[i][0] * q[1] - q[0] * pl[i][1]; } const p = ar < 0 ? pl.slice().reverse() : pl;
+      let cx = 0, cy = 0, g = 1e9; p.forEach(q => { cx += q[0] / p.length; cy += q[1] / p.length; g = Math.min(g, gh(q[0], q[1])); });
+      let zt = g + 12, bd = 1e9; if (A0) A0.rp.forEach(q => { const d = Math.hypot(q[0] - cx, q[1] - cy); if (d < bd) { bd = d; zt = q[2]; } });
+      const y0 = g + 6.3 - BASE, y1 = zt - 1.6 - BASE, y2 = zt + 6.6 - BASE;
+      const wall = (acc, ya, yb, c, us, vs) => { let u = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); quad(acc, [a[0], ya, -a[1]], [b[0], ya, -b[1]], [b[0], yb, -b[1]], [a[0], yb, -a[1]], c, us ? [u / us, (u + L) / us, 0, (yb - ya) / vs] : undefined); u += L; } };
+      wall(sConc, y0, y1, W1, 12, 8); wall(body, y1, y1 + 0.5, [0.74, 0.75, 0.74]); wall(sWall, y1 + 0.5, y2 - 0.6, W1, 9, 9); wall(body, y2 - 0.6, y2, [0.3, 0.32, 0.35]);
+      const tris = T3.ShapeUtils.triangulateShape(p.map(q => new T3.Vector2(q[0], q[1])), []);
+      tris.forEach(t => { const a = p[t[0]], b = p[t[1]], c = p[t[2]]; tri(sRoof, a[0], y2, -a[1], c[0], y2, -c[1], b[0], y2, -b[1], W1); sRoof.u.push(a[0] / 8, a[1] / 8, c[0] / 8, c[1] / 8, b[0] / 8, b[1] / 8); tri(body, a[0], y0, -a[1], b[0], y0, -b[1], c[0], y0, -c[1], [0.55, 0.56, 0.56]); });
+      let x0 = 1e9, x1 = -1e9, yy0 = 1e9, yy1 = -1e9; p.forEach(q => { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); yy0 = Math.min(yy0, q[1]); yy1 = Math.max(yy1, q[1]); });
+      for (let x = x0 + 3; x < x1; x += 11) for (let y = yy0 + 3; y < yy1; y += 11) { if (!inPoly(p, x, y)) continue; const gz = Hq(x, y); if (edgeD > 2) box(body, x, gz - BASE, -y, 1.3, y0 - (gz - BASE), 1.3, [0.72, 0.72, 0.7]); }
+      // 出入口樓梯間（綠色格柵外觀）：站體兩端外側、不在路面上的位置
+      [[x0, (yy0 + yy1) / 2, -1], [x1, (yy0 + yy1) / 2, 1]].forEach(e => { for (const dy of [0, 14, -14, 26, -26]) { const ex = e[0] + e[2] * 5, ey = e[1] + dy, gz = Hq(ex, ey); if (edgeD > 4) { const yb = gz - BASE, yt = y0 + 3.2, hh = yt - yb, c4 = [[ex - 3.5, ey - 5], [ex + 3.5, ey - 5], [ex + 3.5, ey + 5], [ex - 3.5, ey + 5]]; for (let q = 0; q < 4; q++) { const a = c4[q], b = c4[(q + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]); quad(sEnt, [a[0], yb, -a[1]], [b[0], yb, -b[1]], [b[0], yt, -b[1]], [a[0], yt, -a[1]], W1, [0, L / 7, 0, hh / 7]); } quad(body, [c4[0][0], yt, -c4[0][1]], [c4[1][0], yt, -c4[1][1]], [c4[2][0], yt, -c4[2][1]], [c4[3][0], yt, -c4[3][1]], [0.3, 0.32, 0.35]); break; } } });
+    });
+    add0(body);
+    [[sRoof, 'roof', 0x55595f], [sWall, 'wall', 0xb8bcc0], [sConc, 'concourse', 0x3a4046], [sEnt, 'entrance', 0x3f8a3c]].forEach(q => { if (!q[0].p.length) return; const tx = imgTex(q[1]), m = toMesh(q[0], new T3.MeshLambertMaterial(tx ? { map: tx, side: T3.DoubleSide } : { color: q[2], side: T3.DoubleSide })); m.castShadow = m.receiveShadow = true; scene.add(m); });
     const add = (a, mat) => { if (!a.p.length) return; const m = toMesh(a, mat); m.castShadow = m.receiveShadow = true; scene.add(m); };
     add(conc, new T3.MeshLambertMaterial({ color: 0xc2c0b9, side: T3.DoubleSide })); add(roof, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide })); add(glass, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide, transparent: true, opacity: 0.72 }));
     // 列車：4 節編組（每節約 20.25 m），普通車各站停、直達車僅停 A8
@@ -414,33 +451,120 @@
       G.base += n * 2;
     });
     V._crossing = crossing;
+    // 路口：三向以上交會處鋪一塊無標線的路面，蓋掉各路段穿過路口的車道線
+    { const arms = new Map(), key = p => Math.round(p[0] * 10) + ',' + Math.round(p[1] * 10), addA = (p, n, w) => { const k = key(p); let a = arms.get(k); if (!a) arms.set(k, a = { p, n: 0, w: 0 }); a.n += n; if (w > a.w) a.w = w; };
+      D.roads.forEach(r => { if (r.br) return; r.p.forEach((p, i) => addA(p, i === 0 || i === r.p.length - 1 ? 1 : 2, r._w)); });
+      D.edges.forEach(e => { if (e.k === 'l' || e.k === 'n') { addA(e.p[0], 1, 4); addA(e.p[e.p.length - 1], 1, 4); } });
+      const JP = [], JU = [], JN = [], JI = []; let jb = 0;
+      arms.forEach(a => { if (a.n < 3 || Math.abs(a.p[1] - terr.Yc(a.p[0])) < 30) return; const R = a.w * 1.35 + 2.5, y = gh(a.p[0], a.p[1]) + 0.2 - BASE; JP.push(a.p[0], y, -a.p[1]); JU.push(0.5, 0.5); JN.push(0, 1, 0); for (let q = 0; q < 14; q++) { const t = q / 14 * 6.2832, cx = Math.cos(t), sy = Math.sin(t); JP.push(a.p[0] + cx * R, y, -(a.p[1] + sy * R)); JU.push(0.5 + cx * R / 12, 0.5 + sy * R / 12); JN.push(0, 1, 0); JI.push(jb, jb + 1 + q, jb + 1 + (q + 1) % 14); } jb += 15; });
+      const jg = new T3.BufferGeometry(); jg.setAttribute('position', new T3.Float32BufferAttribute(JP, 3)); jg.setAttribute('uv', new T3.Float32BufferAttribute(JU, 2)); jg.setAttribute('normal', new T3.Float32BufferAttribute(JN, 3)); jg.setIndex(JI);
+      const jm = new T3.Mesh(jg, new T3.MeshLambertMaterial({ map: canvasTex(128, 128, (g, w, h) => { g.fillStyle = '#6a6e73'; g.fillRect(0, 0, w, h); noise(g, w, h, 1500, 0.08, false); noise(g, w, h, 1500, 0.12, true); }), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })); jm.receiveShadow = true; scene.add(jm); V.junctions = jb / 15; }
     for (const k in groups) { const G = groups[k], g = new T3.BufferGeometry(); g.setAttribute('position', new T3.Float32BufferAttribute(G.P, 3)); g.setAttribute('uv', new T3.Float32BufferAttribute(G.U, 2)); g.setAttribute('normal', new T3.Float32BufferAttribute(G.N, 3)); g.setIndex(G.I); const sm = new T3.Mesh(g, new T3.MeshLambertMaterial({ map: stTex(G.n, G.ow), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })); sm.receiveShadow = true; scene.add(sm); }
     { const bm = toMesh(conc, new T3.MeshLambertMaterial({ color: 0xb4b2ab, side: T3.DoubleSide })); bm.castShadow = bm.receiveShadow = true; scene.add(bm); { const c2 = toMesh(conc2, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide })); c2.castShadow = c2.receiveShadow = true; scene.add(c2); } if (med.p.length) { const mm = toMesh(med, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })); mm.receiveShadow = true; scene.add(mm); } }
   })();
 
+  const stPolys = [];
   // 建物
   (function buildings() {
-    const kinds = { apt: Acc(), glass: Acc(), ind: Acc(), shop: Acc(), gen: Acc() }, roofs = Acc();
+    // 立面材質：依街景參考生成的照片質感貼圖（data/tex）；缺檔時退回程序貼圖
+    const STY = { apt_brick: 'apt', apt_grey: 'apt', apt_dark: 'apt', apt_beige: 'apt', apt_old: 'gen', office_glass: 'glass', hospital: 'glass', mall: 'shop', industrial: 'ind', school: 'gen', home_a9: 'apt', home_a9_podium: 'shop', a9_east: 'apt', a9_side: 'apt', a9_flank: 'apt', a9_core: 'apt', sky_ab: 'apt', sky_ab_balc: 'apt', sky_c: 'glass', sky_c_side: 'gen' };
+    const kinds = {}, roofs = Acc(); for (const k in STY) kinds[k] = Acc();
+    // 地標：名稱關鍵字 → 立面；OSM 未命名者以座標補上名稱
+    const LM = [[/時尚A9/, 'home_a9'], [/長庚|兒童大樓|復健大樓|醫學大樓|病理大樓|尖端醫療|質子|工程大樓/, 'hospital'], [/冠德鼎捷|璽來登|翡翠大道/, 'apt_dark'], [/福樺中央|世貿新都|丰嶺商辦/, 'office_glass'], [/環球購物|Global Mall|三井|昕境廣場/, 'mall'], [/^[A-I]$/, 'apt_grey']];
+    // 以座標補名稱與樓層：[x, y, 名稱, 樓層(0=不指定)]。時尚A9：位置取自 Google 地圖（三民路 15 號），獨棟 12 層為住戶提供
+    const NAMEFIX = [[-70, 559, '三井 Outlet Park 林口', 0], [-779, 150, '時尚A9', 12], [-649, 105, '亞昕晴空樹 A棟', 33], [-616, 105, '亞昕晴空樹 B棟', 33], [-581, 148, '亞昕晴空樹 C棟', 33]];
+    const places = V.places = [];
+    const styleOf = (b, H, area, bi) => {
+      for (const l of LM) if (l[0].test(b.n)) return l[1];
+      const t = b.t, r = hash(bi, 13);
+      if (t === 'hospital') return 'hospital'; if (t === 'industrial' || t === 'warehouse') return 'industrial'; if (t === 'school' || t === 'university' || t === 'dormitory') return t === 'dormitory' ? 'apt_grey' : 'school';
+      if (t === 'office') return 'office_glass'; if (t === 'retail' || t === 'commercial') return area > 2500 ? 'mall' : 'office_glass';
+      if (H > 30) return r < 0.34 ? 'apt_beige' : r < 0.6 ? 'apt_brick' : r < 0.82 ? 'apt_grey' : 'apt_dark';
+      if (t === 'apartments' || t === 'residential') return H > 18 ? (r < 0.5 ? 'apt_brick' : 'apt_beige') : 'apt_old';
+      return area > 1500 ? 'industrial' : 'apt_old';
+    };
     const DEFH = { apartments: 42, residential: 16, house: 9, industrial: 12, school: 14, retail: 14, hospital: 36, commercial: 24, office: 30, roof: 6, construction: 12, yes: 12 };
-    const KIND = { apartments: 'apt', residential: 'apt', house: 'gen', industrial: 'ind', school: 'gen', retail: 'shop', commercial: 'shop', hospital: 'glass', office: 'glass' };
-    const PAL = { apt: [[0.95, 0.92, 0.86], [0.86, 0.84, 0.8], [0.93, 0.86, 0.78], [0.8, 0.82, 0.84]], glass: [[0.9, 0.95, 1], [0.8, 0.9, 0.95]], ind: [[0.95, 0.95, 0.95], [0.75, 0.82, 0.9], [0.9, 0.86, 0.78]], shop: [[1, 0.96, 0.9], [0.9, 0.9, 0.9]], gen: [[0.95, 0.93, 0.88], [0.85, 0.85, 0.82]] };
     let known = 0;
     D.bld.forEach((b, bi) => {
       let p = b.p; if (p.length < 3) return;
       let area = 0; for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; area += p[i][0] * q[1] - q[0] * p[i][1]; }
       if (area < 0) p = p.slice().reverse(); area = Math.abs(area) / 2; if (area < 12) return;
+      { let fx = 0, fy = 0; p.forEach(q => { fx += q[0] / p.length; fy += q[1] / p.length; }); for (const f of NAMEFIX) if (!b.n && Math.hypot(fx - f[0], fy - f[1]) < 12) { b.n = f[2]; if (f[3] && !b.lv) b.lv = f[3]; } }
       let H = b.h || (b.lv ? b.lv * 3.3 + 1 : 0); if (H) known++; else { H = (DEFH[b.t] || 12) * (0.82 + hash(bi, 7) * 0.36); if (b.t === 'apartments' || b.t === 'residential') H *= area < 160 ? 0.35 : area < 420 ? 0.7 : 1; }
       if (b.t === 'roof') H = 6;
-      const isSt = b.t === 'train_station' || b.t === 'transportation'; if (isSt && D.rail && D.rail.st.some(q => Math.hypot(q.x - p[0][0], q.y - p[0][1]) < 160)) H = 22; // 捷運站體：高架車站
-      const kd = isSt ? 'glass' : KIND[b.t] || (H > 30 ? 'apt' : 'gen'), acc = kinds[kd], pal = PAL[kd], col = pal[(hash(bi, 3) * pal.length) | 0];
+      const isSt = (b.t === 'train_station' || b.t === 'transportation') && D.rail && D.rail.st.some(q => Math.hypot(q.x - p[0][0], q.y - p[0][1]) < 160);
+      if (isSt) { stPolys.push(p); return; } // 捷運站體為高架結構，另行建模（見 railway）
+      let cx = 0, cy = 0; p.forEach(q => { cx += q[0] / p.length; cy += q[1] / p.length; });
+      if (b.n.indexOf('亞昕晴空樹') === 0) {
+        // 亞昕晴空樹（文化三路一段 39 巷）：依住戶提供的照片與建商圖面個別建模。A、B 棟為雙塔，屋頂為樹枝狀框架；C 棟正面為玻璃帷幕與樹形線條
+        const g0 = Math.min(...p.map(q => gh(q[0], q[1]))) - BASE - 0.5, FH = 3.5, NF = 33, yT = g0 + 0.5 + NF * FH, W1 = [1, 1, 1], WH = [0.86, 0.87, 0.88];
+        const seg = (F, u1, h1, u2, h2, w, col, off) => { const o = off === undefined ? 0.3 : off, P = (u, h) => [F.ox + F.dx * u + F.nx * o, h, -(F.oy + F.dy * u + F.ny * o)], du = u2 - u1, dh = h2 - h1, L = Math.hypot(du, dh) || 1, pu = -dh / L * w / 2, ph = du / L * w / 2; quad(roofs, P(u1 - pu, h1 - ph), P(u2 - pu, h2 - ph), P(u2 + pu, h2 + ph), P(u1 + pu, h1 + ph), col); };
+        const capP = (pl, y, c) => T3.ShapeUtils.triangulateShape(pl.map(q => new T3.Vector2(q[0], q[1])), []).forEach(t => { const a = pl[t[0]], d = pl[t[1]], e = pl[t[2]]; tri(roofs, a[0], y, -a[1], e[0], y, -e[1], d[0], y, -d[1], c); });
+        const isC = /C棟$/.test(b.n);
+        let u = 0;
+        for (let k = 0; k < p.length; k++) {
+          const a = p[k], c = p[(k + 1) % p.length], L = Math.hypot(c[0] - a[0], c[1] - a[1]), north = -(c[0] - a[0]) / L > 0.7, key = !isC ? (north ? 'sky_ab' : 'sky_ab_balc') : (L > 12 && L < 13.5 ? 'sky_c_side' : 'sky_c'); // A、B 棟：北面為窗牆，南、東、西面為白色直柱與玻璃陽台（依八德路街景）
+          quad(kinds[key], [a[0], g0, -a[1]], [c[0], g0, -c[1]], [c[0], yT, -c[1]], [a[0], yT, -a[1]], W1, [u / 12.8, (u + L) / 12.8, 0, NF / 4]); u += L;
+          if (isC && L > 12 && L < 13.5) { const F = { ox: a[0], oy: a[1], dx: (c[0] - a[0]) / L, dy: (c[1] - a[1]) / L, nx: (c[1] - a[1]) / L, ny: -(c[0] - a[0]) / L }; seg(F, L / 2, g0 + 8, L / 2, yT + 3, 2.2, [0.2, 0.23, 0.27]); for (const s of [0.22, 0.78]) seg(F, L * s, yT, L * s, yT + 4.5, L * 0.4, [0.74, 0.75, 0.76], 0); } // C 棟端牆：中央深色凹槽、頂部兩側升高
+          if (isC && L > 13.5) { // C 棟長向立面：自地面向上分岔的樹形線條
+            const F = { ox: a[0], oy: a[1], dx: (c[0] - a[0]) / L, dy: (c[1] - a[1]) / L, nx: (c[1] - a[1]) / L, ny: -(c[0] - a[0]) / L }, Ht = yT - g0, n = Math.max(2, Math.round(L / 7.5));
+            const grow = (uu, h, sp, dpt) => { const top = Math.min(yT, h + Ht * (dpt === 0 ? 0.3 : 0.17)); seg(F, uu, h, uu, top, 0.45, WH); if (top >= yT - 1 || dpt > 3) { if (top < yT) seg(F, uu, top, uu, yT, 0.45, WH); return; } const h2 = Math.min(yT, top + Ht * 0.07); for (const s of [-1, 1]) { const u2 = Math.max(0.4, Math.min(L - 0.4, uu + s * sp)); seg(F, uu, top, u2, h2, 0.4, WH); grow(u2, h2, sp * 0.52, dpt + 1); } };
+            for (let q = 0; q < n; q++) grow(L * (q + 0.5) / n, g0, L / n * 0.26, 0);
+          }
+        }
+        capP(p, yT, [0.5, 0.5, 0.49]);
+        if (!isC) { // A、B 棟屋頂：退縮的玻璃量體，外圍立柱向上分岔成樹枝狀，頂部一圈框架
+          let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; p.forEach(q => { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); });
+          const CH = 11, pen = [[x0 + 4, y0 + 4], [x1 - 4, y0 + 4], [x1 - 4, y1 - 4], [x0 + 4, y1 - 4]];
+          pen.forEach((a, k) => { const c = pen[(k + 1) % 4]; quad(kinds.office_glass, [a[0], yT, -a[1]], [c[0], yT, -c[1]], [c[0], yT + 7, -c[1]], [a[0], yT + 7, -a[1]], W1, [0, 1.5, 0, 0.5]); }); capP(pen, yT + 7, [0.45, 0.46, 0.47]);
+          [{ ox: x0, oy: y0, dx: 1, dy: 0, nx: 0, ny: -1, L: x1 - x0 }, { ox: x1, oy: y0, dx: 0, dy: 1, nx: 1, ny: 0, L: y1 - y0 }, { ox: x1, oy: y1, dx: -1, dy: 0, nx: 0, ny: 1, L: x1 - x0 }, { ox: x0, oy: y1, dx: 0, dy: -1, nx: -1, ny: 0, L: y1 - y0 }].forEach(F => {
+            const n = Math.round(F.L / 3.3), sp = F.L / n, G = [0.74, 0.76, 0.78];
+            seg(F, 0, yT + CH - 0.5, F.L, yT + CH - 0.5, 1.0, G, 0); seg(F, 0.4, yT, 0.4, yT + CH, 0.8, G, 0); seg(F, F.L - 0.4, yT, F.L - 0.4, yT + CH, 0.8, G, 0);
+            for (let k = 1; k < n; k++) { const uu = k * sp; if (k % 2) { seg(F, uu, yT, uu, yT + CH * 0.45, 0.45, G, 0); for (const s of [-1, 1]) { seg(F, uu, yT + CH * 0.45, uu + s * sp * 0.5, yT + CH * 0.7, 0.4, G, 0); seg(F, uu + s * sp * 0.5, yT + CH * 0.7, uu + s * sp * 0.5, yT + CH - 0.5, 0.4, G, 0); } } else seg(F, uu, yT, uu, yT + CH * 0.3, 0.4, G, 0); }
+          });
+          [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].forEach(q => box(roofs, q[0] + (q[0] === x0 ? 0.4 : -0.4), yT, -(q[1] + (q[1] === y0 ? 0.4 : -0.4)), 0.8, CH, 0.8, [0.74, 0.76, 0.78]));
+        }
+        places.push({ n: b.n, x: cx, y: cy, h: NF * FH + (isC ? 2 : 11), a: area }); return;
+      }
+      if (b.n === '時尚A9') {
+        // 依住戶提供的平面圖與照片個別建模。正面朝東（三民路）；平面比例取自平面圖，並配合 OSM 輪廓東側量體的實際尺寸
+        const OX = -779, OY = 150, g0 = Math.min(...p.map(q => gh(q[0], q[1]))) - BASE - 0.5, FH = 3.3, yP = g0 + 0.5 + 2 * 4.2, yT = yP + 10 * FH, W1 = [1, 1, 1];
+        const A = (x, y) => [OX + x, OY + y];
+        // 塔樓外框（逆時針）：東正面 15.5 m、南北側面 9 m、西側中央為凸出的電梯梯間
+        const T = [[11.5, -4.3, 'a9_east'], [11.5, 11.2, 'a9_side'], [2.5, 11.2, 'a9_flank'], [2.5, 6.7, 'a9_core'], [-1.7, 6.7, 'a9_core'], [-1.7, 0.2, 'a9_core'], [2.5, 0.2, 'a9_flank'], [2.5, -4.3, 'a9_side']];
+        const face = (acc, a, c, ya, yb, rows) => quad(acc, [a[0], ya, -a[1]], [c[0], ya, -c[1]], [c[0], yb, -c[1]], [a[0], yb, -a[1]], W1, [0, 1, 0, rows]);
+        const capP = (pl, y, c) => T3.ShapeUtils.triangulateShape(pl.map(q => new T3.Vector2(q[0], q[1])), []).forEach(t => { const a = pl[t[0]], d = pl[t[1]], e = pl[t[2]]; tri(roofs, a[0], y, -a[1], e[0], y, -e[1], d[0], y, -d[1], c); });
+        // 裙樓：沿用 OSM 輪廓，2 層石材與玻璃店面；東側加紅色招牌
+        { let u = 0; for (let k = 0; k < p.length; k++) { const a = p[k], c = p[(k + 1) % p.length], L = Math.hypot(c[0] - a[0], c[1] - a[1]); quad(kinds.home_a9_podium, [a[0], g0, -a[1]], [c[0], g0, -c[1]], [c[0], yP, -c[1]], [a[0], yP, -a[1]], W1, [u / 12.8, (u + L) / 12.8, 0, 1]); u += L; } capP(p, yP, [0.6, 0.6, 0.58]); }
+        box(roofs, OX + 12.2, g0 + 4.7, -(OY + 0.5), 0.3, 1.0, 4.2, [0.78, 0.12, 0.14]);
+        // 塔樓 10 層：四個立面各用對應的貼圖
+        const TP = T.map(q => A(q[0], q[1]));
+        T.forEach((q, k) => face(kinds[q[2]], TP[k], TP[(k + 1) % TP.length], yP, yT, 2.5));
+        TP.forEach((a, k) => { const c = TP[(k + 1) % TP.length]; quad(roofs, [a[0], yT, -a[1]], [c[0], yT, -c[1]], [c[0], yT + 1.2, -c[1]], [a[0], yT + 1.2, -a[1]], [0.72, 0.72, 0.7]); }); capP(TP, yT + 0.2, [0.5, 0.5, 0.49]);
+        // 東正面的立體細部：中間三開間為陽台（樓板與玻璃欄杆），其餘三開間為窗上雨遮
+        const bw = 15.5 / 6;
+        for (let f = 0; f < 10; f++) for (let k = 0; k < 6; k++) {
+          const yc = OY - 4.3 + (k + 0.5) * bw, yf = yP + f * FH;
+          if (k >= 1 && k <= 3) { box(roofs, OX + 11.5 + 0.55, yf - 0.1, -yc, 1.1, 0.2, bw - 0.25, [0.74, 0.74, 0.72]); box(roofs, OX + 11.5 + 1.07, yf + 0.1, -yc, 0.06, 1.05, bw - 0.25, [0.2, 0.24, 0.28]); }
+          else box(roofs, OX + 11.5 + 0.3, yf + 2.7, -yc, 0.6, 0.12, bw - 0.5, [0.74, 0.74, 0.72]);
+        }
+        // 屋頂：梯間與水箱量體，外圍一圈框架
+        const C = [A(6.5, 0.2), A(6.5, 6.7), A(-1.7, 6.7), A(-1.7, 0.2)]; C.forEach((a, k) => face(kinds.a9_core, a, C[(k + 1) % 4], yT, yT + 8.5, 8.5 / 13.2)); capP(C, yT + 8.5, [0.45, 0.45, 0.44]);
+        [[11.5, -4.3], [11.5, 11.2], [2.5, 11.2], [2.5, -4.3]].forEach(q => box(roofs, OX + q[0] + (q[0] > 5 ? -0.5 : 0.5), yT, -(OY + q[1] + (q[1] > 0 ? -0.5 : 0.5)), 0.9, 4.6, 0.9, [0.72, 0.72, 0.7]));
+        box(roofs, OX + 7, yT + 4.1, -(OY - 3.8), 9, 0.5, 0.6, [0.72, 0.72, 0.7]); box(roofs, OX + 7, yT + 4.1, -(OY + 10.7), 9, 0.5, 0.6, [0.72, 0.72, 0.7]); box(roofs, OX + 11, yT + 4.1, -(OY + 3.45), 0.6, 0.5, 15.5, [0.72, 0.72, 0.7]);
+        places.push({ n: b.n, x: OX + 5, y: OY + 3.5, h: 12 * FH + 9, a: area }); return;
+      }
+      const kd = styleOf(b, H, area, bi), acc = kinds[kd], tv = 0.9 + hash(bi, 3) * 0.1, col = [tv, tv, tv];
+      if (b.n && !/^.$/.test(b.n)) places.push({ n: b.n, x: cx, y: cy, h: H, a: area });
       let y0 = 1e9; p.forEach(q => { y0 = Math.min(y0, gh(q[0], q[1])); }); y0 -= BASE + 0.5; const y1 = y0 + H + 0.5; if (Math.abs(p[0][1] - terr.Yc(p[0][0])) < 260) y0 -= 14; // 路塹旁建物：牆面向下延伸，避免基座懸空
       let u = 0;
-      for (let i = 0; i < p.length; i++) { const a = p[i], c = p[(i + 1) % p.length], L = Math.hypot(c[0] - a[0], c[1] - a[1]); quad(acc, [a[0], y0, -a[1]], [c[0], y0, -c[1]], [c[0], y1, -c[1]], [a[0], y1, -a[1]], col, [u / 12.8, (u + L) / 12.8, 0, (H + 0.5) / 13.2]); u += L; }
-      const tris = T3.ShapeUtils.triangulateShape(p.map(q => new T3.Vector2(q[0], q[1])), []), rc = [0.62 + hash(bi, 5) * 0.12, 0.62 + hash(bi, 5) * 0.12, 0.6 + hash(bi, 5) * 0.12];
-      tris.forEach(t => { const a = p[t[0]], c = p[t[1]], e = p[t[2]]; tri(roofs, a[0], y1, -a[1], e[0], y1, -e[1], c[0], y1, -c[1], rc); });
+      for (let i = 0; i < p.length; i++) { const a = p[i], c = p[(i + 1) % p.length], L = Math.hypot(c[0] - a[0], c[1] - a[1]); quad(acc, [a[0], y0, -a[1]], [c[0], y0, -c[1]], [c[0], y1, -c[1]], [a[0], y1, -a[1]], col, [u / 12.8, (u + L) / 12.8, (y0 - y1) / 13.2 + Math.ceil(H / 13.2), Math.ceil(H / 13.2)]); u += L; } // 貼圖自屋頂往下對齊樓層
+      const tris = T3.ShapeUtils.triangulateShape(p.map(q => new T3.Vector2(q[0], q[1])), []), rv = 0.4 + hash(bi, 5) * 0.16, rc = [rv, rv, rv * 0.97], yr = y1 - (H > 9 ? 1.1 : 0.3); // 屋頂略低於牆頂，形成女兒牆
+      tris.forEach(t => { const a = p[t[0]], c = p[t[1]], e = p[t[2]]; tri(roofs, a[0], yr, -a[1], e[0], yr, -e[1], c[0], yr, -c[1], rc); });
+      if (H > 24 && area > 250) { const s2 = Math.min(9, Math.sqrt(area) * 0.3); box(roofs, cx, yr, -cy, s2, 3.2 + hash(bi, 6) * 2, s2 * 0.7, [0.62, 0.62, 0.6]); } // 屋突（梯間、水箱）
     });
     V.bldKnown = known; V.bldTotal = D.bld.length;
-    for (const k in kinds) if (kinds[k].p.length) { const bm = toMesh(kinds[k], new T3.MeshLambertMaterial({ map: facade(k), vertexColors: true })); bm.castShadow = bm.receiveShadow = true; scene.add(bm); }
+    for (const k in kinds) if (kinds[k].p.length) { const bm = toMesh(kinds[k], new T3.MeshLambertMaterial({ map: photoTex(k) || facade(STY[k]), vertexColors: true })); bm.castShadow = bm.receiveShadow = true; scene.add(bm); }
     { const rm = toMesh(roofs, new T3.MeshLambertMaterial({ vertexColors: true, side: T3.DoubleSide })); rm.castShadow = rm.receiveShadow = true; scene.add(rm); }
   })();
 
@@ -465,6 +589,18 @@
   { const a = roadPt('文化一路', 0, 0), b = roadPt('文化北路', 1, 40); if (a) labels.add(label('林口A交流道 41K', a[0], terr.Yc(a[0]), 34)); if (b) labels.add(label('林口B交流道', b[0], terr.Yc(b[0]), 34)); }
   [['林口長庚醫院', 160, -400, 60, ST], ['機捷 A9 林口站', -473, 62, 30, ST], ['機捷 A8 長庚醫院站', 430, -500, 30, ST], ['往臺北 ▶', 2500, -470, 40, DIR], ['◀ 往桃園', -2900, -700, 40, DIR]].forEach(l => labels.add(label(l[0], l[1], l[2], l[3], l[4])));
 
+  // 地標標籤與「找我家」定位
+  (D.rail ? D.rail.st : []).forEach(s => V.places.push({ n: '機場捷運 ' + s.ref + ' ' + s.n + '站', x: s.x, y: s.y, h: 25, a: 9e9 }));
+  { const seen = {}; V.places = V.places.filter(p => { if (seen[p.n]) { if (p.a > seen[p.n].a) Object.assign(seen[p.n], p); return false; } seen[p.n] = p; return true; }).sort((a, b) => a.n.localeCompare(b.n, 'zh-Hant')); }
+  [/三井 Outlet/, /國家檔案館/, /福樺中央大樓/, /^環球購物中心$/, /桃園長庚轉運站/, /冠德鼎捷/, /時尚A9/, /亞昕晴空樹 B棟/].forEach(re => { const p = V.places.find(q => re.test(q.n)); if (p) { const sp = label(p.n, p.x, p.y, 0, { bg: 'rgba(150,96,20,0.92)', size: 0.022 }); sp.position.y = gh(p.x, p.y) - BASE + p.h + 14; labels.add(sp); } });
+  { const p = V.places.find(q => q.n === 'F'); const sp = label('林口社會住宅（世大運選手村）', 1330, 1020, 80, { bg: 'rgba(150,96,20,0.92)', size: 0.022 }); labels.add(sp); V.places.push({ n: '林口社會住宅（世大運選手村）', x: 1330, y: 1020, h: 66, a: 1 }); }
+  let pin = null;
+  V.focusPlace = function (p) {
+    if (pin) scene.remove(pin); pin = label('▼ ' + p.n, p.x, p.y, 0, { bg: 'rgba(214,40,40,0.95)', size: 0.034 }); pin.position.y = gh(p.x, p.y) - BASE + p.h + 26; scene.add(pin);
+    const gy = gh(p.x, p.y) - BASE, d = Math.max(140, p.h * 2.6);
+    fly = { t: 0, p0: camera.position.clone(), t0: controls.target.clone(), p1: new T3.Vector3(p.x + d * 0.55, gy + p.h + d * 0.55, -p.y + d * 0.85), t1: new T3.Vector3(p.x, gy + p.h * 0.5, -p.y) };
+  };
+
   // ---------- 路網（隨情境重建） ----------
   let netGroup = null; const GC = { so: 0xff8e7a, ni: 0x7fb2ff, ws: 0x7fe0d2, wn: 0xf2d16b };
   V.GC = GC; V.highlight = true;
@@ -476,11 +612,11 @@
     const conc = Acc(), hedge = Acc(), P = [0, 0, 0, 0, 0, 0];
     net.edges.forEach(e => {
       if (e.k === 's') return; // 地面道路段沿用既有街道路面
-      const main = e.k === 'm' || e.k === 'v', sl = main ? 1.0 : 0.8, sr = main ? 3.0 : 1.5, half = e.n * e.lw / 2, pts = edgePts(e);
-      const mat = new T3.MeshLambertMaterial({ map: laneTex(e.n, e.lw, sl, sr, main), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: main ? -3 : -4, polygonOffsetUnits: main ? -6 : -8 });
+      const main = e.k === 'm' || e.k === 'v', sl = main ? 1.0 : 0.8, sr = main ? 3.0 : 1.5, nb = e.nb || e.n, halfL = nb * e.lw / 2, halfR = (e.n - nb / 2) * e.lw, half = e.n * e.lw / 2, pts = edgePts(e);
+      const mat = new T3.MeshLambertMaterial({ map: laneTex(e.n, e.lw, sl, sr, main), side: T3.DoubleSide, polygonOffset: true, polygonOffsetFactor: e.k === 'm' ? -6 : -3 - Math.min(2, e.n) * 0.5, polygonOffsetUnits: e.k === 'm' ? -12 : -6 - Math.min(2, e.n) }); // 主線蓋過匝道：匝道在匯出入口從主線路緣下方接出
       if (e.grp) { mat.userData = { grp: e.grp }; V.newMats.push(mat); if (V.highlight) mat.color.setHex(GC[e.grp]); }
-      const m = new T3.Mesh(ribbonGeo(pts, half + sl, half + sr, 10, e.k === 'm' ? 0.22 : 0.3), mat); m.userData.edge = e; m.receiveShadow = true; netGroup.add(m);
-      const wl = half + sl, wr = half + sr;
+      const m = new T3.Mesh(ribbonGeo(pts, halfL + sl, halfR + sr, 10, e.k === 'm' ? 0.3 : 0.24), mat); m.userData.edge = e; m.receiveShadow = true; netGroup.add(m);
+      const wl = halfL + sl, wr = halfR + sr;
       // 中央護欄、高架側牆、橋墩、擋土牆
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i], ya = a[2] - BASE + 0.3, yb = b[2] - BASE + 0.3;
@@ -509,13 +645,7 @@
         const step = e.k === 'v' ? 40 : 30, sz = e.k === 'v' ? 2.6 : 1.7;
         for (let s = step / 2; s < e.len; s += step) {
           LK.posAt(e, s, (sr - sl) / 2, P); const i = LK.idxAt(e, s), off = e.OFF[i]; if (off < 3.5) continue;
-          const ground = Hq(P[0], P[1]);
-          if (e.k !== 'v' && Math.abs(P[1] - terr.Yc(P[0])) < 19) continue; // 不在主線車道上立墩
-          const top = P[2] - 1.5, dh = e.n * e.lw / 2 + 2;
-          if (e.k === 'v' && Math.abs(P[1] - terr.Yc(P[0])) < 21) { // 位於國道正上方：兩側立柱加橫梁跨越車道
-            const yc = terr.Yc(P[0]), g1 = Hq(P[0], yc + 25), g2 = Hq(P[0], yc - 25);
-            pier(conc, P[0], yc + 25, g1, top - 2.2, 0, 1, 2.6, 1.3, 2.4); pier(conc, P[0], yc - 25, g2, top - 2.2, 0, 1, 2.6, 1.3, 2.4); box(conc, P[0], top - BASE - 2.2, -yc, 2.8, 2.2, 55);
-          } else pier(conc, P[0], P[1], ground, top, P[3], P[4], dh * (e.k === 'v' ? 0.72 : 0.6), e.k === 'v' ? 1.5 : 0.9, e.k === 'v' ? 2.6 : 1.6);
+          support(conc, P[0], P[1], P[2], P[3], P[4], e.n * e.lw / 2 + 2, e.k === 'v');
         }
       }
     });
@@ -600,8 +730,8 @@
     const d = V.sun.el, day = LK.sstep((d + 4) / 14), high = LK.sstep((d - 4) / 22);
     cA.setHex(0x0b1322); cB.setHex(0xf0b183); const sky = cA.clone().lerp(cB, LK.sstep((d + 8) / 9)); cA.setHex(0xa9cbea); sky.lerp(cA, LK.sstep((d - 1) / 14));
     scene.background = sky; scene.fog.color.copy(sky);
-    sun.color.setHex(0xffb070).lerp(cA.setHex(0xfff6e6), high); sun.intensity = 0.95 * LK.sstep((d + 0.5) / 9);
-    hemi.intensity = 0.2 + 0.42 * day; hemi.color.setHex(0x7d8fb5).lerp(cA.setHex(0xdfeeff), day);
+    sun.color.setHex(0xffb070).lerp(cA.setHex(0xfff6e6), high); sun.intensity = 0.8 * LK.sstep((d + 0.5) / 9);
+    hemi.intensity = 0.3 + 0.5 * day; // 背光面保留足夠亮度，避免立面細節全黑 hemi.color.setHex(0x7d8fb5).lerp(cA.setHex(0xdfeeff), day);
     sun.castShadow = V.shadows && d > 1.5;
   };
   V.setShadows = function (on) { V.shadows = on; sun.castShadow = on && V.sun.el > 1.5; };

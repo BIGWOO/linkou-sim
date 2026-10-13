@@ -47,6 +47,10 @@ button { cursor: pointer; }
 .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--sign-2); }
 #collapse { flex: none; width: 40px; border-left: 1px solid var(--line) !important; }
 .tab { overflow-y: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.find { flex: none; display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.find input { min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); font-size: 13px; }
+.find .note { grid-column: 1 / -1; } .find .note:empty { display: none; }
+#panel.collapsed .find { display: none; }
 #panel.collapsed { bottom: auto; }
 #panel.collapsed .tab { display: none; }
 h2 { font-size: 13px; margin: 0; font-weight: 700; letter-spacing: .06em; color: var(--muted); }
@@ -131,6 +135,8 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
       <button id="collapse" aria-label="收合面板">▾</button>
     </div>
 
+    <div class="find"><label class="lbl" for="find">找我家／找地標</label><input id="find" list="places" placeholder="輸入社區、建物或地標名稱" autocomplete="off"><datalist id="places"></datalist><span class="note" id="find-msg"></span></div>
+
     <section class="tab" id="tab-plan">
       <p>林口 A（約 41K，文化一路）與林口 B（約 43K，文化北路／忠義路）是兩座以集散道串聯的鑽石型交流道。主線長爬坡、匝道口號誌與集散道上的交織，讓出口車流回堵到國道主線。高公局統計這裡每日進出逾 17 萬車次，是全國最繁忙的交流道。</p>
       <dl class="facts">
@@ -200,10 +206,11 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
       <ul class="src">
         <li><b>線形與匝道配置：</b>OpenStreetMap（2026/10/13 擷取），含標註 2027 年通車的施工中匝道。座標以公尺投影，模型為 1:1。</li>
         <li><b>地面道路：</b>車道數取 OpenStreetMap 標註，未標註的路段沿用同名道路最常見的值，仍無資料者依道路等級給預設值。雙向分隔的幹道會在兩向之間畫出中央分隔島與行道樹；樹種無資料，僅文化北路依街景設為棕櫚。跨越國道的四座幹道橋（文化一路、文化二路、文化三路、文化北路／忠義路）另依 Google 街景目視判讀每向車道數、分隔島型式與人行道。</li>
+        <li><b>建物立面：</b>十種立面貼圖是以 Google 街景為參考、用影像生成模型產生的材質，不是實拍照片；各棟依建物類型、樓高與名稱套用。長庚醫院、三井 Outlet、環球購物中心、冠德鼎捷、福樺中央大樓、林口社會住宅另指定立面。時尚A9 依住戶提供的照片與平面圖個別建模（獨棟 12 層、四個立面分開、屋頂梯間）。亞昕晴空樹 A、B、C 三棟依住戶提供的照片與建商圖面個別建模（33 層、樹枝狀屋頂框架）。</li>
         <li><b>建物：</b>OpenStreetMap 建物輪廓 <span id="bld-note"></span> 棟，其中 <span id="bld-known"></span> 棟有樓層或高度資料，其餘依建物類型給定預設高度。</li>
         <li><b>地表影像：</b>內政部國土測繪中心正射影像（通用版）WMTS，全域為第 16 級、交流道核心為第 18 級。</li>
         <li><b>地形與縱坡：</b>SRTM 30 m 高程。先以路廊兩側高程還原台地面，國道在林口台地段下挖成路塹（路面至少低於兩側 7 m，為推定值），沿中心線平滑後作為路面縱斷面。</li>
-        <li><b>機場捷運：</b>OpenStreetMap 的主線、站內側線與 A8、A9 站體輪廓。軌道高程為推定（高於地面約 9.5 m，並自五楊高架下方穿越）。列車為示意：班距 7.5 分、普通車與直達車交錯，非實際時刻表。</li>
+        <li><b>機場捷運：</b>OpenStreetMap 的主線、站內側線與 A8、A9 站體輪廓。站體依現場照片建為高架車站：穿堂層架高跨越道路、深灰金屬屋面、綠色格柵出入口；層高與柱位為推定。站體的屋面、月台牆、穿堂帷幕與出入口格柵貼圖，是以現場照片為參考、用影像生成模型產生的材質，不是實拍。軌道高程為推定（高於地面約 9.5 m，並自五楊高架下方穿越）。列車為示意：班距 7.5 分、普通車與直達車交錯，非實際時刻表。</li>
         <li><b>日照：</b>依模擬日期（2026/09/08）、時刻與當地經緯度計算太陽方位角與高度角，陰影方向與長度隨時間變化。</li>
         <li><b>林地與公園：</b>OpenStreetMap 土地使用範圍，用於配置樹木。</li>
         <li><b>車流量與車種：</b>高公局 TDCS M03A，2026/09/08（週二）門架 01F0376、01F0413、01F0467 與五楊 01H0447 的 5 分鐘各車種通過量。</li>
@@ -236,7 +243,7 @@ textarea { width: 100%; height: 90px; font: 11px/1.4 ui-monospace, monospace; ba
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script>window.LINKOU=/*__DATA__*/;window.ORTHO=/*__ORTHO__*/;</script>
+<script>window.LINKOU=/*__DATA__*/;window.ORTHO=/*__ORTHO__*/;window.TEXS=/*__TEXS__*/;</script>
 <script>/*__SIM__*/</script>
 <script>/*__VIEW__*/</script>
 <script>/*__APP__*/</script>

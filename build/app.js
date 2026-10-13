@@ -126,6 +126,10 @@
     try { navigator.clipboard.writeText(txt).then(() => done(true), () => { ta.select(); done(false); }); } catch (e) { ta.select(); done(false); }
   });
 
+  // 找我家／找地標
+  $('places').innerHTML = V.places.map(p => '<option value="' + p.n.replace(/"/g, '&quot;') + '">').join('');
+  const findPlace = () => { const q = $('find').value.trim(); if (!q) return; const p = V.places.find(x => x.n === q) || V.places.find(x => x.n.indexOf(q) >= 0); if (p) { V.focusPlace(p); $('find-msg').textContent = '已定位：' + p.n; if (window.innerWidth < 760) $('panel').classList.add('collapsed'); } else $('find-msg').textContent = '找不到「' + q + '」。目前只收錄 OpenStreetMap 上有名稱的 ' + V.places.length + ' 處建物與地標。'; };
+  $('find').addEventListener('change', findPlace); $('find').addEventListener('keydown', ev => { if (ev.key === 'Enter') findPlace(); });
   $('date').textContent = D.date.replace(/-/g, '/');
   $('bld-note').textContent = D.bld.length.toLocaleString();
   function layout() { const h = $('bar').offsetHeight; if (window.innerWidth >= 760) { $('panel').style.top = (h + 10) + 'px'; $('help').style.top = (h + 10) + 'px'; $('legend').style.top = ''; } else { $('panel').style.top = ''; $('legend').style.top = (h + 8) + 'px'; } }
