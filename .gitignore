@@ -2,3 +2,4 @@
 node_modules/
 .claude/
 build/preview/
+build/ortho.json
