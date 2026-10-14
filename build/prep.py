@@ -195,7 +195,10 @@ except Exception as ex:print('relation buildings skipped',ex)
 print('rail tracks',len(rail['tracks']),'stations',[s['ref'] for s in rail['st']])
 el=json.load(open(W+'/data/elev.json'))
 el['h']=[round(v) for v in el['h']]
-out=dict(origin=[LAT0,LON0],rail=rail,green=green,stubs=stubs,edges=edges,roads=roads,bld=bld,elev=el,vol=vol,spd=spd,ff=ff,date='2026-09-08')
+# 林口各匝道 5 分鐘流量（高公局 VD，見 build/vd.py）
+import os
+ramp=json.load(open(W+'/data/vd/ramps_20260908.json'))['vol5'] if os.path.exists(W+'/data/vd/ramps_20260908.json') else None
+out=dict(ramp=ramp,origin=[LAT0,LON0],rail=rail,green=green,stubs=stubs,edges=edges,roads=roads,bld=bld,elev=el,vol=vol,spd=spd,ff=ff,date='2026-09-08')
 s=json.dumps(out,ensure_ascii=False,separators=(',',':'))
 open(W+'/build/data.json','w').write(s)
 print(len(s),len(edges),len(roads),len(bld),ff)
