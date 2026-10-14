@@ -115,8 +115,9 @@
   PARS.forEach(p => { const el = $('p-' + p[0]); el.addEventListener('input', () => { $('o-' + p[0]).textContent = p[5](+el.value); }); el.addEventListener('change', () => { setP(p[0], +el.value); clearStore(); start(); }); });
   $('bound').addEventListener('change', ev => { state.par.bound = ev.target.checked; clearStore(); start(); });
   $('spill').addEventListener('change', ev => { state.par.spill = ev.target.checked; clearStore(); start(); });
+  $('vd').addEventListener('change', ev => { state.par.vd = ev.target.checked; clearStore(); start(); });
   $('diamond').addEventListener('change', ev => { state.par.diamond = ev.target.checked; clearStore(); start(); });
-  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; $('spill').checked = false; $('diamond').checked = false; clearStore(); start(); });
+  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; $('spill').checked = false; $('diamond').checked = false; $('vd').checked = true; clearStore(); start(); });
   // 匯出
   $('copy').addEventListener('click', () => {
     const rows = ['情境,時段起,項目,模擬流量(輛/時),實測流量(輛/時),模擬速率(km/h),實測速率(km/h),樣本數'];
