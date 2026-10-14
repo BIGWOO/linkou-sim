@@ -102,7 +102,7 @@
   // ---------------- 情境設定 ----------------
   const CFG = {
     lanes: {
-      both: { '25439936': 2, '182679857': 1, '790658669': 3, '1534580804': 1, '1534580805': 1, '1123164658_0': 1, '1123164658_1': 2, '394517636': 2, '27516896': 1, '25439941': 1, '182979602': 1, '1534580808': 1, '1534580809': 1, '1534580803': 1 },
+      both: { '25439936': 2, '182679857': 1, '790658669': 3, '1534580804': 1, '1534580805': 1, '1123164658_0': 1, '1123164658_1': 2, '394517636': 2, '27516896': 2, '25439941': 1, '182979602': 1, '1534580808': 1, '1534580809': 1, '1534580803': 1 },
       after: { '182679857': 2, '1534580801_0': 1, '1534580801_1': 3, '24000913': 1, '1534580806': 1, '1534580807': 1, '1310980990': 1, '1123164658_0': 1 }
     },
     removeAfter: ['74281316_1', '1534580803_0', '1534580805_0'],
@@ -320,7 +320,7 @@
   }
 
   // ---------------- 模擬 ----------------
-  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, bLeft: 0.6, bThru: 0.15, bg: 0.5, spill: false, diamond: false, cycle: 150, gc: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.45, A_N: 0.65 }, gcAfter: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.45, A_N: 0.65 }, bound: true, seed: 20260908 };
+  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, bLeft: 0.6, bThru: 0.15, vd: true, bg: 0.5, spill: false, diamond: false, cycle: 150, gc: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.55, A_N: 0.65 }, gcAfter: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.55, A_N: 0.65 }, bound: true, seed: 20260908 };
 
   function Sim(net, D, par, t0) {
     this.net = net; this.D = D; this.par = Object.assign({}, DEF, par || {}); this.par.gc = Object.assign({}, DEF.gc, (par && par.gc) || {});
@@ -361,22 +361,28 @@
     const xS = Math.max(0, sIn - sM), eS = Math.max(0, sOut - sM), xN = Math.max(0, nIn - nM), eN = Math.max(0, nOut - nM);
     const after = this.net.scen === 'after';
     const pxS = sIn ? xS / sIn : 0, pxN = nIn ? xN / nIn : 0;
-    const aL = p.alphaS * p.left, aT = p.alphaS * p.thru, aR = p.alphaS * (1 - p.left - p.thru);
+    // 匝道 A／B 分配：採高公局匝道偵測器實測（前後各 5 分鐘平滑）；缺值時用參數。南入 A 偵測器故障，以門架推得的南入總量扣除南入 B
+    const R = p.vd && this.D.ramp, rs = k => { let s = 0, n = 0; for (let d = -1; d <= 1; d++) { const x = R[k][(b + d + 288) % 288]; if (x !== null && x !== undefined) { s += x; n++; } } return n ? s / n : null; };
+    const ratio = (a, c, def) => { if (!R) return def; const x = rs(a), y = rs(c); return x !== null && y !== null && x + y > 0 ? x / (x + y) : def; };
+    const aS = ratio('A_S', 'B_S', p.alphaS), aN = ratio('A_N', 'B_N', p.alphaN), bN = ratio('A_N_on', 'B_N_on', p.betaN);
+    let bS = p.betaS; if (R) { const y = rs('B_S_on'); if (y !== null && eS > 0) bS = Math.max(0, Math.min(1, 1 - y / eS)); }
+    this.split = { aS, aN, bS, bN };
+    const aL = aS * p.left, aT = aS * p.thru, aR = aS * (1 - p.left - p.thru);
     const d = {
-      S_in: { r: sIn * k, mix: V['01F0376S'][b], to: [['S_out', 1 - pxS], ['A_S_R', pxS * aR], ['A_S_L', pxS * aL], ['A_S_T', pxS * aT], ['B_S', pxS * (1 - p.alphaS)]] },
-      N_in: { r: nIn * k, mix: V['01F0467N'][b], to: [['N_out', 1 - pxN], ['A_N', pxN * p.alphaN], ['B_N_L', pxN * (1 - p.alphaN) * p.bLeft], ['B_N_T', pxN * (1 - p.alphaN) * p.bThru], ['B_N', pxN * (1 - p.alphaN) * (1 - p.bLeft - p.bThru)]] },
-      A_S_on: { r: eS * p.betaS * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
-      B_S_on: { r: eS * (1 - p.betaS) * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
-      A_N_on: { r: eN * p.betaN * (after ? 1 - p.newOn : 1) * k, mix: V['01F0376N'][b], to: [['N_out', 1]] },
-      A_N_on2: { r: after ? eN * p.betaN * p.newOn * k : 0, mix: V['01F0376N'][b], to: [['N_out', 1]] },
-      B_N_on: { r: eN * (1 - p.betaN) * k, mix: V['01F0376N'][b], to: [['N_out', 1]] },
+      S_in: { r: sIn * k, mix: V['01F0376S'][b], to: [['S_out', 1 - pxS], ['A_S_R', pxS * aR], ['A_S_L', pxS * aL], ['A_S_T', pxS * aT], ['B_S', pxS * (1 - aS)]] },
+      N_in: { r: nIn * k, mix: V['01F0467N'][b], to: [['N_out', 1 - pxN], ['A_N', pxN * aN], ['B_N_L', pxN * (1 - aN) * p.bLeft], ['B_N_T', pxN * (1 - aN) * p.bThru], ['B_N', pxN * (1 - aN) * (1 - p.bLeft - p.bThru)]] },
+      A_S_on: { r: eS * bS * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
+      B_S_on: { r: eS * (1 - bS) * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
+      A_N_on: { r: eN * bN * (after ? 1 - p.newOn : 1) * k, mix: V['01F0376N'][b], to: [['N_out', 1]] },
+      A_N_on2: { r: after ? eN * bN * p.newOn * k : 0, mix: V['01F0376N'][b], to: [['N_out', 1]] },
+      B_N_on: { r: eN * (1 - bN) * k, mix: V['01F0376N'][b], to: [['N_out', 1]] },
       VS_in: { r: q('01H0447S') * k, mix: V['01H0447S'][b], to: [['VS_out', 1]] },
       VN_in: { r: q('01H0447N') * k, mix: V['01H0447N'][b], to: [['VN_out', 1]] }
     };
     this.cur = { xS, eS, xN, eN, sIn, nIn };
     // 下游邊界：以下一組門架區間實測速率作為出口速率（僅在低於 80 km/h 時作用）
-    const bS = this.D.spd['01F0467S>01F0492S'][b], bN = this.D.spd['01F0376N>01F0340N'][b];
-    this.bnd = p.bound ? { S_out: bS > 0 && bS < 80 ? bS / 3.6 : 0, N_out: bN > 0 && bN < 80 ? bN / 3.6 : 0 } : null;
+    const dS = this.D.spd['01F0467S>01F0492S'][b], dN = this.D.spd['01F0376N>01F0340N'][b];
+    this.bnd = p.bound ? { S_out: dS > 0 && dS < 80 ? dS / 3.6 : 0, N_out: dN > 0 && dN < 80 ? dN / 3.6 : 0 } : null;
     return d;
   };
   Sim.prototype.sinkFor = function (dst) {
@@ -448,6 +454,17 @@
       cur = next; l = l2; pi++; depth++;
     }
     out[0] = 1e4; out[1] = 0;
+  };
+  // 由目前路段的車道 l 往下游推算（考慮車道對應的位移），檢查下游 2.5 km 內各路段該車道是否仍在車輛需要的車道範圍內
+  Sim.prototype.okAhead = function (v, e, l) {
+    let d = e.len - v.s, cur = e, pi = v.pi;
+    while (d < 2500) {
+      const o = v.path.e[pi + 1]; if (!o) return true; const tr = cur.tr[o.id]; if (!tr) return true;
+      if (l < tr.lo || l > tr.hi) return false; l -= tr.shift; if (l < 0 || l >= o.n) return false;
+      const nd = v.path.need[pi + 1]; if (nd && (l < nd[0] || l > nd[1]) && o.len < 2500 - d) return false;
+      d += o.len; cur = o; pi++;
+    }
+    return true;
   };
   Sim.prototype.accFor = function (v, e, lane, s, leader, tmp) {
     let gap, vl;
@@ -529,6 +546,7 @@
             for (let d = -1; d <= 1; d += 2) {
               const tl = l + d; if (tl < 0 || tl >= e.n || tl < hvLo) continue;
               if (lim && (tl < need[0] || tl > need[1])) continue;
+              if (e.k === 'm' && !this.okAhead(v, e, tl)) continue; // 不自由換入下游 2.5 km 內必須離開的車道（例如出口專用車道）
               const ta = e.L[tl], k = findIdx(ta, v.s), ld = k ? ta[k - 1] : null, fo = ta[k] || null;
               if (ld && ld.s - ld.len - v.s < 3 + v.v * 0.5) continue;
               if (fo && v.s - v.len - fo.s < 3 + fo.v * 0.6 + Math.max(0, fo.v - v.v) * 1.5) continue;
@@ -543,7 +561,8 @@
           const g1 = ld ? ld.s - ld.len - v.s : 1e4, g2 = fo ? v.s - v.len - fo.s : 1e4;
           let ok1 = g1 > (urgent ? 0.6 : 2.5) + Math.max(0, v.v - (ld ? ld.v : 0)) * (urgent ? 0.5 : 1.2);
           let ok2 = g2 > (urgent ? 0.6 : 2.5) + Math.max(0, (fo ? fo.v : 0) - v.v) * (urgent ? 0.6 : 1.3) + (fo && !urgent ? fo.v * 0.15 : 0);
-          if (mand && ((v.stuck > 20 && g1 > 0.3) || (v.stuck > 45 && g1 > -1.5))) { ok1 = ok2 = true; this.forced = (this.forced || 0) + 1; } // 久候強行切入，避免死結
+          const near = dEnd < 80; // 分岔口前：車輛停等時以拉鍊式輪流切入（較短的等待即強行併入）
+          if (mand && ((v.stuck > (near ? 6 : 20) && g1 > 0.3) || (v.stuck > (near ? 12 : 45) && g1 > -1.5))) { ok1 = ok2 = true; this.forced = (this.forced || 0) + 1; } // 久候強行切入，避免死結
           if (ok1 && ok2) { arr.splice(i, 1); ta.splice(k, 0, v); v.lane = tl; v.lcT = t + (mand ? 1.2 : 4); }
           else {
             v.lcT = t + 0.4;
