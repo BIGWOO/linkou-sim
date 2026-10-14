@@ -20,7 +20,7 @@
   const hhmm = t => { t = ((t % 86400) + 86400) % 86400; const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = Math.floor(t % 60); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); };
   const mmss = s => s >= 60 ? Math.floor(s / 60) + ' 分 ' + String(Math.round(s % 60)).padStart(2, '0') + ' 秒' : Math.round(s) + ' 秒';
   const MOV = [['S_in>S_out', '南下 主線直行'], ['S_in>A_S_L', '南下 → 林口A 左轉（龜山、長庚）'], ['S_in>A_S_R', '南下 → 林口A 右轉（林口）'], ['S_in>A_S_T', '南下 → 林口A 直行八德路'], ['S_in>B_S', '南下 → 林口B（文化北路）'], ['A_S_on>S_out', '林口A 南入'], ['B_S_on>S_out', '林口B 南入'],
-    ['N_in>N_out', '北上 主線直行'], ['N_in>A_N', '北上 → 林口A'], ['N_in>B_N', '北上 → 林口B（忠義路）'], ['B_N_on>N_out', '林口B 北入'], ['A_N_on>N_out', '林口A 北入（既有匝道）'], ['A_N_on2>N_out', '林口A 北入（新高架匝道）']];
+    ['N_in>N_out', '北上 主線直行'], ['N_in>A_N', '北上 → 林口A'], ['N_in>B_N_L', '北上 → 林口B 左轉過橋（往林口）'], ['N_in>B_N_T', '北上 → 林口B 直行龜山一路'], ['N_in>B_N', '北上 → 林口B 右轉（忠義路往龜山）'], ['B_N_on>N_out', '林口B 北入'], ['A_N_on>N_out', '林口A 北入（既有匝道）'], ['A_N_on2>N_out', '林口A 北入（新高架匝道）']];
   const PAIRS = [['S_E>S_M', '南下 37.6K → 41.3K（林口A出口上游）'], ['S_M>S_W', '南下 41.3K → 46.7K'], ['N_W>N_M', '北上 46.7K → 41.3K（林口出口上游）'], ['N_M>N_E', '北上 41.3K → 37.6K']];
   const DETS = [['S_E', '南下 37.6K'], ['S_M', '南下 41.3K'], ['S_W', '南下 46.7K'], ['N_W', '北上 46.7K'], ['N_M', '北上 41.3K'], ['N_E', '北上 37.6K']];
 
@@ -108,14 +108,15 @@
   const PARS = [['growth', '需求成長倍率', 0.5, 1.6, 0.05, v => Math.round(v * 100) + '%'], ['bg', '地面背景車流（相對交流道進出量，假設值）', 0, 1.2, 0.05, v => Math.round(v * 100) + '%'], ['gcA_S', '林口A 南出端（左轉／直行）綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcA_SR', '林口A 南出端（右轉專用道）綠燈比', 0.2, 0.9, 0.01, v => v.toFixed(2)], ['gcB_S', '林口B 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcA_N', '林口A 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gcB_N', '林口B 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)],
     ['gaA_S', '改善後：林口A 南出端（左轉／直行）綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaA_SR', '改善後：林口A 南出端（右轉專用道）綠燈比', 0.2, 0.9, 0.01, v => v.toFixed(2)], ['gaB_S', '改善後：林口B 南出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaA_N', '改善後：林口A 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)], ['gaB_N', '改善後：林口B 北出端 綠燈比', 0.2, 0.8, 0.01, v => v.toFixed(2)],
     ['cycle', '號誌週期（秒）', 60, 240, 10, v => v + ' 秒'], ['alphaS', '南出車流走林口A的比例', 0.3, 0.9, 0.01, v => Math.round(v * 100) + '%'], ['betaS', '南入車流來自林口A的比例', 0.2, 0.8, 0.01, v => Math.round(v * 100) + '%'], ['alphaN', '北出車流走林口A的比例', 0.2, 0.8, 0.01, v => Math.round(v * 100) + '%'], ['betaN', '北入車流來自林口A的比例', 0.3, 0.9, 0.01, v => Math.round(v * 100) + '%'],
-    ['left', '林口A南出左轉（往龜山）比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%'], ['newOn', '改善後使用北入新匝道比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%']];
+    ['bLeft', '林口B北出左轉過橋（往林口）比例', 0.2, 0.8, 0.01, v => Math.round(v * 100) + '%'], ['left', '林口A南出左轉（往龜山）比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%'], ['newOn', '改善後使用北入新匝道比例', 0.1, 0.6, 0.01, v => Math.round(v * 100) + '%']];
   const getP = k => k.startsWith('gc') ? state.par.gc[k.slice(2)] : k.startsWith('ga') ? state.par.gcAfter[k.slice(2)] : state.par[k];
   const setP = (k, v) => { if (k.startsWith('gc')) state.par.gc[k.slice(2)] = v; else if (k.startsWith('ga')) state.par.gcAfter[k.slice(2)] = v; else state.par[k] = v; };
   $('pars').innerHTML = PARS.map(p => '<label class="par" for="p-' + p[0] + '"><span>' + p[1] + '</span><output id="o-' + p[0] + '">' + p[5](getP(p[0])) + '</output><input type="range" id="p-' + p[0] + '" min="' + p[2] + '" max="' + p[3] + '" step="' + p[4] + '" value="' + getP(p[0]) + '"></label>').join('');
   PARS.forEach(p => { const el = $('p-' + p[0]); el.addEventListener('input', () => { $('o-' + p[0]).textContent = p[5](+el.value); }); el.addEventListener('change', () => { setP(p[0], +el.value); clearStore(); start(); }); });
   $('bound').addEventListener('change', ev => { state.par.bound = ev.target.checked; clearStore(); start(); });
   $('spill').addEventListener('change', ev => { state.par.spill = ev.target.checked; clearStore(); start(); });
-  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; $('spill').checked = false; clearStore(); start(); });
+  $('diamond').addEventListener('change', ev => { state.par.diamond = ev.target.checked; clearStore(); start(); });
+  $('reset').addEventListener('click', () => { state.par = JSON.parse(JSON.stringify(LK.DEF)); PARS.forEach(p => { $('p-' + p[0]).value = getP(p[0]); $('o-' + p[0]).textContent = p[5](getP(p[0])); }); $('bound').checked = true; $('spill').checked = false; $('diamond').checked = false; clearStore(); start(); });
   // 匯出
   $('copy').addEventListener('click', () => {
     const rows = ['情境,時段起,項目,模擬流量(輛/時),實測流量(輛/時),模擬速率(km/h),實測速率(km/h),樣本數'];

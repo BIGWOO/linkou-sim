@@ -416,7 +416,7 @@
         let w = W0; { const T = Math.min(35, Ltot * 0.45); if (wIn < W0 && s < T) w = wIn + (W0 - wIn) * LK.sstep(s / T); else if (wOut < W0 && Ltot - s < T) w = wOut + (W0 - wOut) * LK.sstep((Ltot - s) / T); }
         let sh = 0, narrow = false;
         // 中央分隔島：向左找對向車道，兩者之間鋪綠帶，各畫一半
-        let cur = null;
+        let cur = null, hasMed = false, lead = false;
         if (others) {
           let bd = 34, bw = 0, bi = -1;
           for (const oi of others) { const o = D.roads[oi], op = o._pts; for (let j = 0; j < op.length; j++) { const dx = op[j][0] - p[0], dy = op[j][1] - p[1], dd = Math.hypot(dx, dy); if (dd >= bd || dx * -rx + dy * -ry < 2) continue; const c = op[Math.min(op.length - 1, j + 1)], e = op[Math.max(0, j - 1)]; if ((c[0] - e[0]) * hx + (c[1] - e[1]) * hy > 0) continue; bd = dd; bw = o._w; bi = oi; } }
@@ -425,22 +425,23 @@
           if (bi >= 0 && !crossing(mx, my, r._id, Math.max(gap, 1) / 2 + 3)) {
             if (gap < 1) { sh = (1 - gap) / 2; gap = 1; } // 兩向中心線太近：各自外移，中間留 1 m 分隔島
             narrow = gap < 2.2 || !!r.br; // 橋上為鋪面分隔島
-            cur = [[p[0] + rx * (sh - w), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w))], [p[0] + rx * (sh - w - gap / 2 - 0.05), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap / 2 - 0.05))]];
-            if (ri < bi && i % 2 === 1 && gap > 2.2 && !r.br && !crossing(mx, my, r._id, gap / 2 + 18)) medTrees.push(p[0] - rx * (w + gap / 2), p[1] - ry * (w + gap / 2), r.n.indexOf('文化北路') === 0 || r.n === '文化一路一段' ? 1 : 0);
-            if (ri < bi && narrow && !(r._bf && r._bf.green)) box(conc2, p[0] + rx * (sh - w - gap / 2), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap / 2)), 0.14, 0.75, 0.14, [0.92, 0.45, 0.12]); // 橘色導桿
+            hasMed = true; lead = hx * 0.37 + hy * 0.93 > 0; // 分隔島整幅由北向（東向）車道那一側畫，兩向不再各畫一半，端部才不會錯開
+            if (lead) cur = [[p[0] + rx * (sh - w), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w))], [p[0] + rx * (sh - w - gap), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap))]];
+            if (lead && i % 2 === 1 && gap > 2.2 && !r.br && !crossing(mx, my, r._id, gap / 2 + 18)) medTrees.push(p[0] - rx * (w + gap / 2), p[1] - ry * (w + gap / 2), r.n.indexOf('文化北路') === 0 || r.n === '文化一路一段' ? 1 : 0);
+            if (lead && narrow && !(r._bf && r._bf.green)) box(conc2, p[0] + rx * (sh - w - gap / 2), hs[i] - BASE + 0.16, -(p[1] + ry * (sh - w - gap / 2)), 0.14, 0.75, 0.14, [0.92, 0.45, 0.12]); // 橘色導桿
           }
         }
         G.P.push(p[0] + rx * (sh - w), hs[i] - BASE, -(p[1] + ry * (sh - w)), p[0] + rx * (sh + w), hs[i] - BASE, -(p[1] + ry * (sh + w))); G.U.push(0, s / 10, 1, s / 10); G.N.push(0, 1, 0, 0, 1, 0);
         const over = !r.br && Math.abs(p[1] - terr.Yc(p[0])) < 40 && hs[i] - terr.M(p[0]) > 2.5; // 未標為橋卻懸在國道上方的路段不畫
         if (i && !over && !prevOver) { const q = G.base + (i - 1) * 2; G.I.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); } prevOver = over;
         if (!r.br && Math.abs(p[1] - terr.Yc(p[0])) > 30) streetS.push(p[0], p[1], hs[i] - 0.18, w + (major(r) ? 4.5 : 1.5));
-        if (cur && prevM) { const f = 0.9 + hash(ri, i) * 0.2; quad(med, prevM[0], cur[0], cur[1], prevM[1], narrow && !(r._bf && r._bf.green) ? [0.62, 0.62, 0.6] : [0.34 * f, 0.5 * f, 0.24 * f]); quad(med, [prevM[0][0], prevM[0][1] - 0.2, prevM[0][2]], [cur[0][0], cur[0][1] - 0.2, cur[0][2]], cur[0], prevM[0], [0.72, 0.72, 0.7]); }
+        if (cur && prevM) { const f = 1; quad(med, prevM[0], cur[0], cur[1], prevM[1], narrow && !(r._bf && r._bf.green) ? [0.62, 0.62, 0.6] : [0.34 * f, 0.5 * f, 0.24 * f]); quad(med, [prevM[0][0], prevM[0][1] - 0.2, prevM[0][2]], [cur[0][0], cur[0][1] - 0.2, cur[0][2]], cur[0], prevM[0], [0.72, 0.72, 0.7]); }
         prevM = cur;
         if (r.br && i) { // 橋面：外側人行道與欄杆；未成對的橋兩側都設護欄
           const p0 = pts[i - 1], y0 = hs[i - 1] - BASE, y1 = hs[i] - BASE, sw = r._bf ? r._bf.sw : major(r) ? 2.0 : 0;
           const E = (q, o, y) => [q[0] + rx * o, y, -(q[1] + ry * o)];
           if (sw) quad(conc2, E(p0, sh + w, y0 + 0.15), E(p, sh + w, y1 + 0.15), E(p, sh + w + sw, y1 + 0.15), E(p0, sh + w + sw, y0 + 0.15), [0.58, 0.4, 0.34]);
-          for (const o of (cur ? [sh + w + sw] : [sh + w + sw, sh - w])) quad(conc2, E(p0, o, y0 - 1.4), E(p, o, y1 - 1.4), E(p, o, y1 + 1.1), E(p0, o, y0 + 1.1), [0.72, 0.72, 0.69]);
+          for (const o of (hasMed ? [sh + w + sw] : [sh + w + sw, sh - w])) quad(conc2, E(p0, o, y0 - 1.4), E(p, o, y1 - 1.4), E(p, o, y1 + 1.1), E(p0, o, y0 + 1.1), [0.72, 0.72, 0.69]);
           quad(conc2, E(p0, sh - w - 1, y0 - 1.4), E(p, sh - w - 1, y1 - 1.4), E(p, sh + w + sw, y1 - 1.4), E(p0, sh + w + sw, y0 - 1.4), [0.6, 0.6, 0.58]);
           if (i % 4 === 0 && hs[i] - terr.M(p[0]) > 3.5 && Math.abs(Math.abs(p[1] - terr.Yc(p[0])) - 1) < 4.1) box(conc, p[0], terr.M(p[0]) - BASE, -p[1], 1.6, hs[i] - terr.M(p[0]) - 1.2, 1.6); // 中央分隔島橋墩
         }
@@ -632,9 +633,9 @@
   function surfInit(net) {
     surfSig = null; const S = net.surf; if (!S) return;
     S.links.forEach(e => { const r = D.roads[e.ri], P = r._pts, H = r._hs; for (let i = 0; i < e.np; i++) { let bd = 1e18, bj = 0; for (let q = 0; q < P.length; q++) { const dx = P[q][0] - e.X[i], dy = P[q][1] - e.Y[i], d = dx * dx + dy * dy; if (d < bd) { bd = d; bj = q; } } e.Z[i] = H[bj]; } });
-    const L = S.links.filter(e => e.sg); if (!L.length) return;
-    const poles = Acc(), PP = [0, 0, 0, 0, 0, 0], m = new T3.InstancedMesh(new T3.BoxGeometry(0.5, 1.3, 0.5), new T3.MeshBasicMaterial(), L.length), M = new T3.Matrix4();
-    L.forEach((e, i) => { LK.posAt(e, e.stop, LK.laneOff(e, e.n - 1) + e.lw / 2 + 1.3, PP); box(poles, PP[0], PP[2] - BASE, -PP[1], 0.16, 5.2, 0.16, [0.3, 0.32, 0.34]); M.makeTranslation(PP[0], PP[2] - BASE + 5.4, -PP[1]); m.setMatrixAt(i, M); m.setColorAt(i, new T3.Color(0xe5332a)); e._g = null; });
+    const L = [], dia = S.sim && S.sim.par.diamond; S.links.forEach(e => { if (!e.sg || (e.sg.inv && !dia)) return; L.push({ e, mv: 'T', o: LK.laneOff(e, e.n - 1) + e.lw / 2 + 1.3 }); if (dia && e.sg.dia && e.art) L.push({ e, mv: 'L', o: LK.laneOff(e, 0) - e.lw / 2 - 1.3 }); }); if (!L.length) return; // 菱形交流道的幹道進口另設左轉燈
+    const poles = Acc(), PP = [0, 0, 0, 0, 0, 0], m = new T3.InstancedMesh(new T3.SphereGeometry(0.9, 10, 8), new T3.MeshBasicMaterial(), L.length), M = new T3.Matrix4();
+    L.forEach((q, i) => { const e = q.e; LK.posAt(e, e.stop, q.o, PP); box(poles, PP[0], PP[2] - BASE, -PP[1], 0.25, 6, 0.25, [0.74, 0.74, 0.72]); M.makeTranslation(PP[0], PP[2] - BASE + 6.4, -PP[1]); m.setMatrixAt(i, M); m.setColorAt(i, new T3.Color(0xe5332a)); q._g = null; });
     m.userData.links = L; m.frustumCulled = false; netGroup.add(m); netGroup.add(toMesh(poles, new T3.MeshLambertMaterial({ vertexColors: true }))); surfSig = m;
   }
   // 情境別的周邊地貌。現況：航照即施工中的樣貌（圍籬、工務所、裸露地），不另加東西；
@@ -772,8 +773,8 @@
       }
     }
     for (let ci = 0; ci < 5; ci++) { vmesh[ci].count = cnt[ci]; vmesh[ci].instanceMatrix.needsUpdate = true; if (vmesh[ci].instanceColor) vmesh[ci].instanceColor.needsUpdate = true; }
-    if (V.sigs) V.sigs.forEach(s => s.lamp.material.color.setHex(sim.green(s.key) ? 0x1fd65a : 0xe5332a));
-    if (surfSig) { const L = surfSig.userData.links; for (let i = 0; i < L.length; i++) { const g = surf.green(L[i]); if (g !== L[i]._g) { L[i]._g = g; COL.setHex(g ? 0x1fd65a : 0xe5332a); surfSig.setColorAt(i, COL); surfSig.instanceColor.needsUpdate = true; } } }
+    if (V.sigs) V.sigs.forEach(s => s.lamp.material.color.setHex(sim.green(s.key) ? (((sim.t + (LK.SIGOFF[s.key] || 0)) % sim.par.cycle) > sim.par.gc[s.key] * sim.par.cycle - 3 ? 0xf5c518 : 0x1fd65a) : 0xe5332a));
+    if (surfSig) { const L = surfSig.userData.links; for (let i = 0; i < L.length; i++) { const g = surf.state(L[i].e, L[i].mv); if (g !== L[i]._g) { L[i]._g = g; COL.setHex(g === 1 ? 0x1fd65a : g === 2 ? 0xf5c518 : 0xe5332a); surfSig.setColorAt(i, COL); surfSig.instanceColor.needsUpdate = true; } } }
   };
 
   // 太陽位置：依模擬日期、時刻與當地經緯度計算（NOAA 簡化式），同時決定光色、天空與陰影方向
