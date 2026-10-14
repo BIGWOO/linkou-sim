@@ -107,10 +107,10 @@
     },
     removeAfter: ['74281316_1', '1534580803_0', '1534580805_0'],
     // 端點（以座標比對 OSM 節點）
-    stubN: { A_S_T: 1, A_S_L: 3 },
-    sinks: { A_S: [268, 138], A_S_T: [264, 74], A_S_L: [264, 74], B_S: [-914, 86], B_N: [-1106, -102], A_N: [70, -82], FLY1: [313, -261], FLY2: [289, -252] },
+    stubN: { A_S_T: 1, A_S_L: 3, B_N: 1, B_N_L: 2, B_N_T: 1 },
+    sinks: { A_S: [268, 138], A_S_T: [264, 74], A_S_L: [264, 74], B_N_L: [-1106, -102], B_N_T: [-1106, -102], B_S: [-914, 86], B_N: [-1106, -102], A_N: [70, -82], FLY1: [313, -261], FLY2: [289, -252] },
     sources: { A_S_on: [136, 64], B_S_on: [-1090, 80], B_N_on: [-979, -98], A_N_on: [278, -75], A_N_on2: [281, 267] },
-    signals: { A_S: 'A_SR', A_S_T: 'A_S', A_S_L: 'A_S', B_S: 'B_S', B_N: 'B_N', A_N: 'A_N' }
+    signals: { A_S: 'A_SR', A_S_T: 'A_S', A_S_L: 'A_S', B_N_L: 'B_N', B_N_T: 'B_N', B_S: 'B_S', B_N: 'B_N', A_N: 'A_N' }
   };
   const NEW_GROUP = { // 改善工程分項（供著色與說明）
     '1122274257': 'so', '1122274253': 'so', '1122274254': 'so', '1122274255': 'so', '1124093682': 'so', '1122274256': 'so',
@@ -139,6 +139,8 @@
     // 林口A南出匝道（Google 街景 2025/11）：起點 2 車道，至路口共 5 車道——最右 1 車道為雙白線分隔的右轉專用道（另一路段），
     // 其左 4 車道為左轉 3、左轉／直行共用 1。改善後依計畫另增 1 條右轉車道
     { const r = split('790658669_0', Math.max(20, byLen('790658669_0') - 60), 3, 4); if (r) r[0].shiftNext = -1; }
+    // 林口B北出匝道末端展寬為 3 車道（衛星影像可見三列停等車輛）
+    split('74281305_0', Math.max(20, byLen('74281305_0') - 90), 2, 3);
     // 匝道端點銜接地面道路：出口車輛駛入地面道路後離開模型，入口車輛由地面道路進場
     const nearPt = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
     for (const key in (D.stubs || {})) {
@@ -208,6 +210,7 @@
       }
     });
     { const e = edges.find(q => q.id === '790658669_0b'), L = e && e.tr.stub_A_S_L, T = e && e.tr.stub_A_S_T; if (L && T) { L.lo = 0; L.hi = 3; L.shift = 0; T.lo = 3; T.hi = 3; T.shift = 3; } } // 最右車道左轉／直行共用
+    { const e = edges.find(q => q.id === '74281305_0b'), t = e && e.tr; if (t && t.stub_B_N_L && t.stub_B_N_T && t.stub_B_N) { Object.assign(t.stub_B_N_L, { lo: 0, hi: 1, shift: 0 }); Object.assign(t.stub_B_N_T, { lo: 2, hi: 2, shift: 2 }); Object.assign(t.stub_B_N, { lo: 2, hi: 2, shift: 2 }); } } // 林口B北出：左側 2 車道左轉過橋，最右車道直行／右轉
     // 端點比對
     const near = (x, y, c) => Math.hypot(x - c[0], y - c[1]) < 14;
     const sinks = {}, sources = {};
@@ -317,7 +320,7 @@
   }
 
   // ---------------- 模擬 ----------------
-  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, bg: 0.8, spill: false, cycle: 150, gc: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.5, A_N: 0.65 }, gcAfter: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.5, A_N: 0.65 }, bound: true, seed: 20260908 };
+  const DEF = { growth: 1, alphaS: 0.68, alphaN: 0.45, betaS: 0.45, betaN: 0.62, left: 0.31, thru: 0.15, newOn: 0.30, bLeft: 0.6, bThru: 0.15, bg: 0.5, spill: false, diamond: false, cycle: 150, gc: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.45, A_N: 0.65 }, gcAfter: { A_S: 0.32, A_SR: 0.65, B_S: 0.45, B_N: 0.45, A_N: 0.65 }, bound: true, seed: 20260908 };
 
   function Sim(net, D, par, t0) {
     this.net = net; this.D = D; this.par = Object.assign({}, DEF, par || {}); this.par.gc = Object.assign({}, DEF.gc, (par && par.gc) || {});
@@ -361,7 +364,7 @@
     const aL = p.alphaS * p.left, aT = p.alphaS * p.thru, aR = p.alphaS * (1 - p.left - p.thru);
     const d = {
       S_in: { r: sIn * k, mix: V['01F0376S'][b], to: [['S_out', 1 - pxS], ['A_S_R', pxS * aR], ['A_S_L', pxS * aL], ['A_S_T', pxS * aT], ['B_S', pxS * (1 - p.alphaS)]] },
-      N_in: { r: nIn * k, mix: V['01F0467N'][b], to: [['N_out', 1 - pxN], ['A_N', pxN * p.alphaN], ['B_N', pxN * (1 - p.alphaN)]] },
+      N_in: { r: nIn * k, mix: V['01F0467N'][b], to: [['N_out', 1 - pxN], ['A_N', pxN * p.alphaN], ['B_N_L', pxN * (1 - p.alphaN) * p.bLeft], ['B_N_T', pxN * (1 - p.alphaN) * p.bThru], ['B_N', pxN * (1 - p.alphaN) * (1 - p.bLeft - p.bThru)]] },
       A_S_on: { r: eS * p.betaS * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
       B_S_on: { r: eS * (1 - p.betaS) * k, mix: V['01F0467S'][b], to: [['S_out', 1]] },
       A_N_on: { r: eN * p.betaN * (after ? 1 - p.newOn : 1) * k, mix: V['01F0376N'][b], to: [['N_out', 1]] },
